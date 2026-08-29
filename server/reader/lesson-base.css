@@ -1,0 +1,160 @@
+/* The house stylesheet a NEW lesson starts from.
+
+   A lesson embeds its own CSS, because a lesson has to stand alone: this is a
+   TEMPLATE, not a shared sheet, and nothing loads it at runtime. It is the
+   stylesheet 20 of this module's 29 lessons carry verbatim, and the others are
+   this plus their own additions, which is the intended shape: start here, add
+   what your lesson needs.
+
+   `new_lesson.py` prefers whatever the target course already uses and falls
+   back to this, so an existing course keeps its own look and a new one gets
+   the house style. */
+:root {
+    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#64777F;
+    --rule:#D8E0DE; --rule-soft:#E6ECEA; --regulated:#1C6D61; --reg-wash:#DDEBE7;
+    --broken:#A25E14; --broken-wash:#F4E6D4;
+    --shadow:0 1px 2px rgba(26,40,48,.06), 0 8px 24px rgba(26,40,48,.05);
+    --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:#121A1E; --surface:#182328; --ink:#DFE7E7; --ink-soft:#B4C4C6; --muted:#85989C;
+      --rule:#27353B; --rule-soft:#1F2C32; --regulated:#6EC0B0; --reg-wash:#17332F;
+      --broken:#DBA463; --broken-wash:#33261A;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#121A1E; --surface:#182328; --ink:#DFE7E7; --ink-soft:#B4C4C6; --muted:#85989C;
+    --rule:#27353B; --rule-soft:#1F2C32; --regulated:#6EC0B0; --reg-wash:#17332F;
+    --broken:#DBA463; --broken-wash:#33261A;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+  }
+
+  * { box-sizing:border-box; }
+  body {
+    background:var(--paper); color:var(--ink); font-family:var(--body);
+    font-size:16.5px; line-height:1.62; margin:0; padding:0 24px 96px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:960px; margin:0 auto; }
+  .col { max-width:70ch; }
+
+  .masthead { padding:56px 0 32px; border-bottom:2px solid var(--ink); margin-bottom:40px; }
+  .eyebrow {
+    font-family:var(--mono); font-size:12px; letter-spacing:.09em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 18px;
+  }
+  h1 {
+    font-family:var(--display); font-size:clamp(34px,5.4vw,52px); line-height:1.08;
+    letter-spacing:-.015em; font-weight:600; margin:0 0 16px; text-wrap:balance;
+  }
+  .standfirst { font-size:18px; color:var(--ink-soft); max-width:62ch; margin:0; }
+
+  section { margin:0 0 60px; }
+  .sec-head {
+    display:flex; align-items:baseline; gap:14px; margin:0 0 18px;
+    border-top:1px solid var(--rule); padding-top:22px;
+  }
+  .sec-num { font-family:var(--mono); font-size:13px; color:var(--regulated); flex:none; padding-top:4px; }
+  h2 {
+    font-family:var(--display); font-size:29px; line-height:1.2; font-weight:600;
+    letter-spacing:-.01em; margin:0; text-wrap:balance;
+  }
+  h3 {
+    font-family:var(--body); font-size:15px; font-weight:700; letter-spacing:.01em;
+    margin:30px 0 8px; color:var(--ink);
+  }
+  p { margin:0 0 15px; }
+  .col > p:last-child, .col > ul:last-child { margin-bottom:0; }
+  ul, ol { margin:0 0 15px; padding-left:22px; }
+  li { margin-bottom:7px; }
+  li > ul { margin-top:7px; margin-bottom:4px; }
+  b, strong { font-weight:700; }
+  .term { font-weight:700; color:var(--regulated); }
+
+  .note {
+    background:var(--surface); border:1px solid var(--rule); border-left:3px solid var(--regulated);
+    border-radius:3px; padding:18px 22px; margin:24px 0; box-shadow:var(--shadow);
+  }
+  .note.warn { border-left-color:var(--broken); }
+  .note-label {
+    font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); display:block; margin-bottom:8px;
+  }
+  .note p:last-child { margin-bottom:0; }
+
+  blockquote.pull {
+    margin:26px 0; padding:0 0 0 22px; border-left:3px solid var(--regulated);
+    font-family:var(--display); font-size:21px; line-height:1.45; color:var(--ink);
+  }
+
+  figure { margin:34px 0; padding:0; }
+  .figbox {
+    background:var(--surface); border:1px solid var(--rule); border-radius:4px;
+    padding:22px 20px 18px; overflow-x:auto; box-shadow:var(--shadow);
+  }
+  figure svg { display:block; width:100%; min-width:620px; height:auto; }
+  figcaption { font-size:14px; color:var(--muted); margin-top:14px; max-width:74ch; }
+
+  .s-node { fill:var(--surface); stroke:var(--muted); stroke-width:1.4; }
+  .s-node-on { fill:var(--reg-wash); stroke:var(--regulated); stroke-width:2; }
+  .s-node-hot { fill:var(--broken-wash); stroke:var(--broken); stroke-width:2.4; }
+  .s-node-off { fill:none; stroke:var(--rule); stroke-width:1.4; stroke-dasharray:5 4; }
+  .s-lab { fill:var(--ink); font-family:var(--body); font-size:13px; font-weight:600; }
+  .s-lab-off { fill:var(--muted); font-family:var(--body); font-size:13px; font-weight:600; }
+  .s-sub { fill:var(--muted); font-family:var(--body); font-size:11px; }
+  .s-arrlab { fill:var(--ink-soft); font-family:var(--body); font-size:11.5px; }
+  .s-title { fill:var(--ink); font-family:var(--body); font-size:14px; font-weight:700; }
+  .s-line { stroke:var(--ink-soft); stroke-width:1.6; fill:none; }
+  .s-line-hot { stroke:var(--broken); stroke-width:3; fill:none; }
+  .s-line-reg { stroke:var(--regulated); stroke-width:2.4; fill:none; }
+  .s-cut { stroke:var(--rule); stroke-width:1.6; fill:none; stroke-dasharray:4 6; }
+  .s-x { stroke:var(--broken); stroke-width:2.4; }
+  .s-arrow { fill:var(--ink-soft); }
+  .s-arrow-hot { fill:var(--broken); }
+  .s-arrow-reg { fill:var(--regulated); }
+
+  .tblwrap { overflow-x:auto; margin:24px 0; }
+  table.tbl {
+    border-collapse:collapse; width:100%; min-width:520px; font-size:14.5px;
+    background:var(--surface); box-shadow:var(--shadow);
+  }
+  table.tbl th, table.tbl td {
+    text-align:left; vertical-align:top; padding:11px 14px; border-bottom:1px solid var(--rule-soft);
+  }
+  table.tbl thead th {
+    font-size:11px; font-family:var(--mono); letter-spacing:.07em; text-transform:uppercase;
+    color:var(--muted); border-bottom:1px solid var(--rule); font-weight:600;
+  }
+  table.tbl tbody tr:last-child td { border-bottom:none; }
+
+  .gloss { margin:0; }
+  .gloss > div {
+    display:grid; grid-template-columns:minmax(150px,220px) 1fr; gap:4px 24px;
+    padding:12px 0; border-bottom:1px solid var(--rule-soft);
+  }
+  .gloss dt { font-weight:700; font-size:15px; }
+  .gloss dd { margin:0; font-size:15px; color:var(--ink-soft); }
+  @media (max-width:620px) { .gloss > div { grid-template-columns:1fr; gap:2px; } }
+
+  ul.refs { list-style:none; padding-left:0; font-size:15px; }
+  ul.refs li { margin-bottom:11px; }
+  ul.refs a { color:var(--regulated); text-decoration:none; border-bottom:1px solid var(--rule); }
+  ul.refs a:hover { border-bottom-color:var(--regulated); }
+  ul.refs .what { color:var(--ink-soft); font-size:14px; display:block; }
+
+  ul.bib { list-style:none; padding-left:0; font-size:14px; line-height:1.5; }
+  ul.bib li { margin-bottom:8px; padding-left:1.1em; text-indent:-1.1em; }
+  ul.bib a { color:var(--regulated); text-decoration:none; border-bottom:1px solid var(--rule-soft); }
+  ul.bib a:hover { border-bottom-color:var(--regulated); }
+  ul.bib .nolink { color:var(--muted); font-family:var(--mono); font-size:11px; }
+  h4.bibhead {
+    font-family:var(--mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); margin:26px 0 10px; font-weight:600;
+  }
+
+  a { color:var(--regulated); }
+  a:focus-visible { outline:2px solid var(--regulated); outline-offset:3px; }

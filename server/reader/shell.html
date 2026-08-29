@@ -1,0 +1,1057 @@
+<!-- study-head:start -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<!-- The tab icon, so a lesson is findable in a row of tabs. Absolute paths:
+     a lesson is served from /m/<CODE>/, and a relative one would be looked for
+     inside the course folder. -->
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="/favicon.ico" sizes="32x32">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<!-- study-head:end -->
+@@TITLE@@@@BODY@@<!-- ================= highlight layer ================= -->
+
+<style>
+  :root { --hl-key: #C9E4DC; --hl-q: #F3DDBE; --hl-d: #CBDCEA; --hl-d-line: #2F6187; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --hl-key: #22504A; --hl-q: #4B3721; --hl-d: #22384E; --hl-d-line: #7FB0D0; }
+  }
+  :root[data-theme="dark"] { --hl-key: #22504A; --hl-q: #4B3721; --hl-d: #22384E; --hl-d-line: #7FB0D0; }
+
+  mark.hl {
+    background: var(--hl-key); color: inherit; border-radius: 2px; cursor: pointer;
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  }
+  mark.hl.q { background: var(--hl-q); }
+  mark.hl.d { background: var(--hl-d); }
+  mark.hl.noted { box-shadow: inset 0 -2px 0 var(--regulated); }
+  mark.hl.active { outline: 2px solid var(--regulated); outline-offset: 1px; }
+
+  /* These set display:flex, which outranks the UA stylesheet's [hidden]{display:none}.
+     Without this the panel and toolbar are permanently visible. */
+  .hl-bar[hidden], .hl-panel[hidden] { display: none; }
+
+  .hl-bar {
+    position: absolute; z-index: 60; display: flex; gap: 5px; padding: 5px;
+    background: var(--surface); border: 1px solid var(--rule); border-radius: 7px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.2);
+  }
+  .hl-bar button {
+    font: 600 12px var(--body); border: 1px solid var(--rule); color: var(--ink);
+    border-radius: 4px; padding: 6px 11px; cursor: pointer;
+  }
+  .hl-bar .hl-sep { width: 1px; align-self: stretch; margin: 1px 2px;
+                    background: var(--rule); }
+  .hl-bar button.k { background: var(--hl-key); }
+  .hl-bar button.q { background: var(--hl-q); }
+  .hl-bar button.d { background: var(--hl-d); }
+
+  .hl-fab {
+    position: fixed; right: 20px; bottom: 20px; z-index: 55;
+    font: 600 13px var(--body); color: var(--ink); background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 999px; padding: 10px 17px;
+    cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,.16);
+  }
+  .hl-fab:focus-visible, .hl-bar button:focus-visible { outline: 2px solid var(--regulated); outline-offset: 2px; }
+
+  .hl-panel {
+    position: fixed; right: 0; top: 0; bottom: 0; width: min(410px, 94vw); z-index: 70;
+    background: var(--surface); border-left: 1px solid var(--rule);
+    display: flex; flex-direction: column; box-shadow: -8px 0 30px rgba(0,0,0,.18);
+  }
+  .hl-panel header {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 16px 18px; border-bottom: 1px solid var(--rule);
+  }
+  .hl-panel header strong { font-family: var(--display); font-size: 20px; font-weight: 600; }
+  .hl-panel header .n { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .hl-panel header button {
+    margin-left: auto; font: 600 12.5px var(--body); background: none;
+    border: 1px solid var(--rule); border-radius: 4px; color: var(--ink);
+    padding: 5px 10px; cursor: pointer;
+  }
+  .hl-scroll { overflow-y: auto; flex: 1; padding: 2px 18px 18px; }
+  .hl-sec { margin-top: 16px; }
+  .hl-sechead {
+    display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px;
+    position: sticky; top: 0; background: var(--surface); padding: 6px 0 5px; z-index: 2;
+  }
+  .hl-sechead h3 {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted); margin: 0; font-weight: 600;
+  }
+  .hl-sechead button {
+    margin-left: auto; font: 600 11.5px var(--body); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; color: var(--ink);
+    padding: 4px 11px; cursor: pointer;
+  }
+  .hl-sechead button:hover { border-color: var(--regulated); color: var(--regulated); }
+  .hl-note { border-bottom: 1px solid var(--rule-soft); padding: 12px 0; }
+  .hl-note textarea {
+    width: 100%; font: 14.5px var(--body); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 9px 10px;
+    resize: vertical; min-height: 68px; line-height: 1.5;
+  }
+  .hl-note textarea:focus { outline: 2px solid var(--regulated); outline-offset: -1px; }
+  .hl-note .row { display: flex; gap: 4px; align-items: center; margin-top: 6px; }
+  .hl-note .when { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-right: auto; }
+  .hl-note .mini {
+    font: 500 12px var(--body); background: none; border: none; color: var(--muted);
+    cursor: pointer; padding: 4px 7px; border-radius: 3px;
+  }
+  .hl-note .mini:hover { color: var(--ink); background: var(--paper); }
+  .hl-item { border-bottom: 1px solid var(--rule-soft); padding: 14px 0; }
+  .hl-item blockquote {
+    margin: 0 0 9px; padding-left: 11px; border-left: 3px solid var(--hl-key);
+    font-size: 14.5px; line-height: 1.5; color: var(--ink);
+  }
+  .hl-item.q blockquote { border-left-color: var(--hl-q); }
+  .hl-item.d blockquote { border-left-color: var(--hl-d-line); }
+  .hl-item.orphan blockquote { border-left-color: var(--broken); opacity: .8; }
+  .hl-item textarea {
+    width: 100%; font: 14px var(--body); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 4px; padding: 7px 9px;
+    resize: vertical; min-height: 36px;
+  }
+  .hl-item .row { display: flex; gap: 4px; margin-top: 6px; }
+  .hl-item .mini {
+    font: 500 12px var(--body); background: none; border: none; color: var(--muted);
+    cursor: pointer; padding: 4px 7px; border-radius: 3px;
+  }
+  .hl-item .mini:hover { color: var(--ink); background: var(--paper); }
+  .hl-panel footer {
+    display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 18px;
+    border-top: 1px solid var(--rule);
+  }
+  .hl-panel footer button, .hl-panel footer label {
+    font: 600 12.5px var(--body); border: 1px solid var(--rule); background: var(--paper);
+    color: var(--ink); border-radius: 4px; padding: 7px 12px; cursor: pointer;
+  }
+  .hl-warn {
+    margin: 14px 18px 0; padding: 10px 12px; border-radius: 4px;
+    background: var(--broken-wash); color: var(--ink); font-size: 13px;
+    border: 1px solid var(--broken); line-height: 1.45;
+  }
+  .hl-empty { color: var(--muted); font-size: 14.5px; padding: 20px 0; line-height: 1.55; }
+  .hl-toast {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 26px; z-index: 90;
+    background: var(--ink); color: var(--paper); font: 13.5px var(--body);
+    padding: 9px 17px; border-radius: 999px; box-shadow: 0 6px 20px rgba(0,0,0,.25);
+  }
+  @media print { .hl-fab, .hl-panel, .hl-bar, .hl-toast { display: none !important; } }
+</style>
+
+<div class="hl-bar" id="hlBar" hidden>
+  <button type="button" class="k" data-c="k">Highlight</button>
+  <button type="button" class="q" data-c="q">Flag</button>
+  <!-- Card is a separate FUNCTIONALITY, not a colour (EH, 2026-08-23): the
+       rule marks the boundary, and the palette never lists or edits it. -->
+  <span class="hl-sep" aria-hidden="true"></span>
+  <button type="button" class="d" data-c="d" title="Make a flashcard for this term">Card</button>
+</div>
+
+<button type="button" class="hl-fab" id="hlFab" aria-expanded="false">Notes <span id="hlFabN">0</span></button>
+
+<aside class="hl-panel" id="hlPanel" hidden aria-label="Notes and highlights">
+  <header>
+    <strong>Notes</strong>
+    <span class="n" id="hlCount"></span>
+    <button type="button" id="hlClose">Close</button>
+  </header>
+  <div class="hl-warn" id="hlWarn" hidden></div>
+  <div class="hl-scroll">
+    <section class="hl-sec">
+      <div class="hl-sechead">
+        <h3>Your notes</h3>
+        <button type="button" id="hlAddNote">Add a note</button>
+      </div>
+      <div id="hlNotes"></div>
+    </section>
+    <section class="hl-sec">
+      <div class="hl-sechead"><h3>Highlights</h3></div>
+      <div id="hlList"></div>
+    </section>
+  </div>
+  <footer>
+    <button type="button" id="hlExport">Export .md</button>
+    <!-- Dead since R40 and hidden at runtime by the layer, but the node stays
+         because its listener is bound at lesson load. Named for what it does
+         rather than for one person's vault, because this file ships to other
+         students (plan 02 §9) and "The Box" means nothing to them. -->
+    <button type="button" id="hlVault">Copy for vault</button>
+    <button type="button" id="hlCopy">Copy</button>
+    <label>Import<input type="file" id="hlImport" accept=".md,.json" hidden></label>
+    <button type="button" id="hlClear">Clear all</button>
+  </footer>
+</aside>
+
+<script>
+(function () {
+  'use strict';
+
+  var DOC_ID    = '@@DOC_ID@@';
+  var DOC_TITLE = '@@DOC_TITLE@@';
+  var STORE_KEY = '@@STORE_PREFIX@@' + DOC_ID;
+  var FENCE     = '```';
+
+  /* Coordinates for the Obsidian vault export. One note per WEEK per class
+     (Courses/KCL <Class> W<nn> - <Week title>), with topic and part as headings
+     inside it, per the vault's Conventions. */
+  var VAULT = {
+    cls:       '@@VAULT_CLS@@',
+    week:      '@@VAULT_WEEK@@',
+    topicNo:  '@@VAULT_TOPICNO@@',
+    weekTitle: '@@VAULT_WEEKTITLE@@',
+    topic:     '@@VAULT_TOPIC@@',
+    part:      '@@VAULT_PART@@',
+    keats:     '@@VAULT_KEATS@@'
+  };
+
+  /* td and th were missing, which made every table in the module
+     unhighlightable: 57 cells across parts 3, 4 and 5. */
+  var SEL = '.wrap p, .wrap li, .wrap h1, .wrap h2, .wrap h3, .wrap h4,' +
+            '.wrap dd, .wrap dt, .wrap figcaption, .wrap blockquote,' +
+            '.wrap td, .wrap th';
+
+  var items   = [];
+  var notes   = [];
+  var blocks  = [];
+  var storeOK = true;
+  var syncHooks = [];
+  var seq     = 0;
+  var nseq    = 0;
+
+  var bar   = document.getElementById('hlBar');
+  var fab   = document.getElementById('hlFab');
+  var fabN  = document.getElementById('hlFabN');
+  var panel = document.getElementById('hlPanel');
+  var list  = document.getElementById('hlList');
+  var noteBox = document.getElementById('hlNotes');
+  var count = document.getElementById('hlCount');
+  var warn  = document.getElementById('hlWarn');
+
+  /* ---------- setup ---------- */
+
+  /* Only outermost candidates become blocks. A nested one (a sub-bullet inside
+     a list item) would be detached the moment its parent's innerHTML is reset
+     during a repaint, silently breaking every highlight inside it. */
+  blocks = Array.prototype.slice.call(document.querySelectorAll(SEL))
+    .filter(function (el) {
+      if (el.closest('.hl-panel') || el.closest('.sv-add')) return false;
+      if (el.textContent.trim().length === 0) return false;
+      var p = el.parentElement;
+      while (p && p !== document.body) {
+        if (p.matches && p.matches(SEL)) return false;
+        p = p.parentElement;
+      }
+      return true;
+    });
+
+  blocks.forEach(function (el, i) {
+    el.setAttribute('data-hb', String(i));
+    el._orig = el.innerHTML;
+  });
+
+  /* ---------- storage ---------- */
+
+  function load() {
+    try {
+      var raw = window.localStorage.getItem(STORE_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        /* v1 stored a bare array of highlights; v2 stores {items, notes}.
+           Read both so nothing saved before free notes existed is lost. */
+        if (Array.isArray(parsed)) {
+          items = parsed;
+        } else if (parsed && typeof parsed === 'object') {
+          items = parsed.items || [];
+          notes = parsed.notes || [];
+        }
+      }
+    } catch (err) {
+      storeOK = false;
+    }
+    items.forEach(function (it) { if (it.id >= seq) seq = it.id + 1; });
+    notes.forEach(function (nt) { if (nt.id >= nseq) nseq = nt.id + 1; });
+  }
+
+  function save() {
+    if (!storeOK) return;
+    try {
+      window.localStorage.setItem(STORE_KEY, JSON.stringify({ items: items, notes: notes }));
+      syncHooks.forEach(function (fn) { try { fn(); } catch (e) {} });
+    } catch (err) {
+      storeOK = false;
+      renderPanel();
+    }
+  }
+
+  /* ---------- offsets ---------- */
+
+  function offsetIn(block, node, off) {
+    var r = document.createRange();
+    r.selectNodeContents(block);
+    try { r.setEnd(node, off); } catch (err) { return -1; }
+    return r.toString().length;
+  }
+
+  function blockOf(node) {
+    var el = node.nodeType === 1 ? node : node.parentNode;
+    return el ? el.closest('[data-hb]') : null;
+  }
+
+  /* ---------- painting ---------- */
+
+  function paint(block, s, e, cls, id) {
+    var walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+    var pos = 0, node, targets = [];
+    while ((node = walker.nextNode())) {
+      var len = node.nodeValue.length;
+      var ns = pos, ne = pos + len;
+      if (ne > s && ns < e) {
+        targets.push({ node: node, from: Math.max(0, s - ns), to: Math.min(len, e - ns) });
+      }
+      pos = ne;
+      if (pos >= e) break;
+    }
+    targets.forEach(function (t) {
+      var n = t.node;
+      if (t.to < n.nodeValue.length) n.splitText(t.to);
+      if (t.from > 0) n = n.splitText(t.from);
+      var m = document.createElement('mark');
+      m.className = 'hl' + (cls === 'q' ? ' q' : (cls === 'd' ? ' d' : ''));
+      if (m.dataset) m.dataset.id = String(id);
+      n.parentNode.insertBefore(m, n);
+      m.appendChild(n);
+    });
+    return targets.length > 0;
+  }
+
+  function renderMarks() {
+    blocks.forEach(function (b) { b.innerHTML = b._orig; });
+
+    var byBlock = {};
+    items.forEach(function (it) {
+      (byBlock[it.b] = byBlock[it.b] || []).push(it);
+    });
+
+    Object.keys(byBlock).forEach(function (bi) {
+      var block = blocks[Number(bi)];
+      if (!block) { byBlock[bi].forEach(function (it) { it.orphan = true; }); return; }
+      var text = block.textContent;
+
+      byBlock[bi].sort(function (a, z) { return a.s - z.s; }).forEach(function (it) {
+        var s = it.s, e = it.e;
+        if (text.slice(s, e) !== it.t) {
+          var found = text.indexOf(it.t);
+          if (found === -1) { it.orphan = true; return; }
+          s = found; e = found + it.t.length;
+          it.s = s; it.e = e;
+        }
+        it.orphan = false;
+        paint(block, s, e, it.c, it.id);
+      });
+    });
+
+    items.forEach(function (it) {
+      if (!it.n) return;
+      document.querySelectorAll('mark.hl[data-id="' + it.id + '"]').forEach(function (m) {
+        m.classList.add('noted');
+      });
+    });
+  }
+
+  /* ---------- panel ---------- */
+
+  function renderPanel() {
+    fabN.textContent = String(items.length + notes.length);
+    count.textContent = (items.length + notes.length) === 0 ? '' :
+      (notes.length + (notes.length === 1 ? ' note' : ' notes') + ', ' +
+       items.length + (items.length === 1 ? ' highlight' : ' highlights'));
+
+    if (!storeOK) {
+      warn.hidden = false;
+      warn.textContent = 'This browser will not let the page store highlights, so they will vanish when you close the tab. Export before you leave.';
+    } else {
+      warn.hidden = true;
+    }
+
+    renderNotes();
+    renderHighlights();
+  }
+
+  function renderNotes() {
+    noteBox.innerHTML = '';
+    if (notes.length === 0) {
+      var p = document.createElement('p');
+      p.className = 'hl-empty';
+      p.textContent = 'Nothing yet. Anything that comes to mind about this material goes here: a question, a connection to something else, a thought to chase later. Notes are not tied to any passage.';
+      noteBox.appendChild(p);
+      return;
+    }
+    notes.slice().sort(function (a, z) { return (z.ts || 0) - (a.ts || 0); }).forEach(function (nt) {
+      var wrap = document.createElement('div');
+      wrap.className = 'hl-note';
+
+      var ta = document.createElement('textarea');
+      ta.value = nt.text || '';
+      ta.placeholder = 'Write anything';
+      /* saves as you type, and deliberately does not re-render, which would steal focus */
+      ta.addEventListener('input', function () { nt.text = ta.value; save(); });
+      wrap.appendChild(ta);
+
+      var row = document.createElement('div');
+      row.className = 'row';
+
+      var when = document.createElement('span');
+      when.className = 'when';
+      try {
+        when.textContent = nt.ts ? new Date(nt.ts).toLocaleDateString(undefined,
+          { day: 'numeric', month: 'short' }) : '';
+      } catch (e) { when.textContent = ''; }
+      row.appendChild(when);
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'mini';
+      del.textContent = 'Remove';
+      del.addEventListener('click', function () {
+        notes = notes.filter(function (x) { return x.id !== nt.id; });
+        save(); renderPanel();
+      });
+      row.appendChild(del);
+
+      wrap.appendChild(row);
+      noteBox.appendChild(wrap);
+    });
+  }
+
+  function addNote() {
+    notes.push({ id: nseq++, text: '', ts: Date.now() });
+    save();
+    openPanel();
+    var first = noteBox.querySelector('textarea');
+    if (first) { first.focus(); }
+  }
+
+  function renderHighlights() {
+    list.innerHTML = '';
+    if (items.length === 0) {
+      var p = document.createElement('p');
+      p.className = 'hl-empty';
+      p.textContent = 'Select any text in the page to highlight it. Use Flag for anything you want to come back to.';
+      list.appendChild(p);
+      return;
+    }
+
+    items.slice().sort(function (a, z) { return (a.b - z.b) || (a.s - z.s); }).forEach(function (it) {
+      var wrap = document.createElement('div');
+      wrap.className = 'hl-item' + (it.c === 'q' ? ' q' : (it.c === 'd' ? ' d' : '')) + (it.orphan ? ' orphan' : '');
+      wrap.setAttribute('data-item', String(it.id));
+
+      var q = document.createElement('blockquote');
+      q.textContent = it.t;
+      wrap.appendChild(q);
+
+      if (it.orphan) {
+        var o = document.createElement('p');
+        o.style.cssText = 'font-size:12.5px;color:var(--broken);margin:0 0 8px';
+        o.textContent = 'The page text changed, so this one is no longer anchored. The words above are still safe and still export.';
+        wrap.appendChild(o);
+      }
+
+      var ta = document.createElement('textarea');
+      ta.value = it.n || '';
+      ta.placeholder = 'Add a note';
+      ta.addEventListener('input', function () {
+        it.n = ta.value;
+        save();
+        document.querySelectorAll('mark.hl[data-id="' + it.id + '"]').forEach(function (m) {
+          m.classList.toggle('noted', !!it.n);
+        });
+      });
+      wrap.appendChild(ta);
+
+      var row = document.createElement('div');
+      row.className = 'row';
+
+      if (!it.orphan) {
+        var jump = document.createElement('button');
+        jump.type = 'button';
+        jump.className = 'mini';
+        jump.textContent = 'Jump to';
+        jump.addEventListener('click', function () { jumpTo(it.id); });
+        row.appendChild(jump);
+      }
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'mini';
+      del.textContent = 'Remove';
+      del.addEventListener('click', function () {
+        items = items.filter(function (x) { return x.id !== it.id; });
+        save(); renderMarks(); renderPanel();
+      });
+      row.appendChild(del);
+
+      wrap.appendChild(row);
+      list.appendChild(wrap);
+    });
+  }
+
+  function jumpTo(id) {
+    var m = document.querySelector('mark.hl[data-id="' + id + '"]');
+    if (!m) return;
+    closePanel();
+    m.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    document.querySelectorAll('mark.hl.active').forEach(function (x) { x.classList.remove('active'); });
+    document.querySelectorAll('mark.hl[data-id="' + id + '"]').forEach(function (x) { x.classList.add('active'); });
+    window.setTimeout(function () {
+      document.querySelectorAll('mark.hl.active').forEach(function (x) { x.classList.remove('active'); });
+    }, 2200);
+  }
+
+  function openPanel()  { panel.hidden = false; fab.setAttribute('aria-expanded', 'true');  renderPanel(); }
+  function closePanel() { panel.hidden = true;  fab.setAttribute('aria-expanded', 'false'); }
+
+  /* ---------- selection ---------- */
+
+  var pending = null;
+
+  function hideBar() { bar.hidden = true; pending = null; }
+
+  /* A selection that crosses a list, a table or a card boundary covers several
+     blocks. The first version required one, and silently showed no toolbar at
+     all for anything wider, which is most of a drag across a card. Now the
+     range is clipped to each block it touches and one mark is made per block. */
+  function segmentsIn(range) {
+    var out = [];
+    for (var i = 0; i < blocks.length; i++) {
+      var el = blocks[i];
+      if (el.closest('.hl-panel')) continue;
+      var touches;
+      try { touches = range.intersectsNode(el); } catch (err) { touches = false; }
+      if (!touches) continue;
+
+      var clip = document.createRange();
+      clip.selectNodeContents(el);
+      try {
+        if (clip.compareBoundaryPoints(Range.START_TO_START, range) < 0) {
+          clip.setStart(range.startContainer, range.startOffset);
+        }
+        if (clip.compareBoundaryPoints(Range.END_TO_END, range) > 0) {
+          clip.setEnd(range.endContainer, range.endOffset);
+        }
+      } catch (err) { continue; }
+
+      var s = offsetIn(el, clip.startContainer, clip.startOffset);
+      var e = offsetIn(el, clip.endContainer, clip.endOffset);
+      if (s < 0 || e < 0) continue;
+      if (e - s < 1) continue;
+      out.push({ b: i, s: Math.min(s, e), e: Math.max(s, e) });
+    }
+    return out;
+  }
+
+  function onSelect() {
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return hideBar();
+
+    var r = sel.getRangeAt(0);
+    if (blockOf(r.startContainer) && blockOf(r.startContainer).closest('.hl-panel')) return hideBar();
+
+    var segs = segmentsIn(r);
+    var total = segs.reduce(function (n, sg) { return n + (sg.e - sg.s); }, 0);
+    if (!segs.length || total < 2) return hideBar();
+
+    pending = segs;
+
+    var rect = r.getBoundingClientRect();
+    bar.hidden = false;
+    var top = rect.top + window.scrollY - bar.offsetHeight - 9;
+    if (top < window.scrollY + 4) top = rect.bottom + window.scrollY + 9;
+    var left = rect.left + window.scrollX + (rect.width / 2) - (bar.offsetWidth / 2);
+    left = Math.max(8, Math.min(left, document.documentElement.clientWidth - bar.offsetWidth - 8));
+    bar.style.top = top + 'px';
+    bar.style.left = left + 'px';
+  }
+
+  function add(cls) {
+    if (!pending || !pending.length) return;
+    var made = 0;
+
+    pending.forEach(function (seg) {
+      var block = blocks[seg.b];
+      if (!block) return;
+
+      var s = seg.s, e = seg.e, note = '';
+
+      /* An overlapping mark in the same block is absorbed rather than stacked,
+         so re-marking a passage widens it instead of layering two. */
+      items = items.filter(function (it) {
+        if (it.b !== seg.b || it.s > e || it.e < s) return true;
+        s = Math.min(s, it.s);
+        e = Math.max(e, it.e);
+        if (it.n) note = note ? (note + '\n' + it.n) : it.n;
+        return false;
+      });
+
+      items.push({
+        id: seq++, b: seg.b, s: s, e: e,
+        t: block.textContent.slice(s, e), c: cls, n: note
+      });
+      made++;
+    });
+
+    if (!made) return hideBar();
+
+    var sel = window.getSelection();
+    if (sel) sel.removeAllRanges();
+    hideBar();
+    save(); renderMarks(); renderPanel();
+  }
+
+  /* ---------- export and import ---------- */
+
+  function buildMarkdown() {
+    var lines = [];
+    lines.push('# Highlights: ' + DOC_TITLE);
+    lines.push('');
+    lines.push('Exported ' + new Date().toISOString().slice(0, 10) + '. ' +
+               notes.length + (notes.length === 1 ? ' note, ' : ' notes, ') +
+               items.length + (items.length === 1 ? ' highlight.' : ' highlights.'));
+    lines.push('');
+    lines.push('Re-import this same file in the artifact’s Highlights panel to restore them.');
+    lines.push('');
+
+    if (notes.length) {
+      lines.push('## Notes');
+      lines.push('');
+      notes.slice().sort(function (a, z) { return (a.ts || 0) - (z.ts || 0); }).forEach(function (nt) {
+        if (!nt.text) return;
+        lines.push('- ' + nt.text.replace(/\n+/g, ' ').trim());
+      });
+      lines.push('');
+    }
+
+    var sorted = items.slice().sort(function (a, z) { return (a.b - z.b) || (a.s - z.s); });
+    function bucket(c) { return sorted.filter(function (i) { return (i.c || 'k') === c; }); }
+
+    function block(title, arr) {
+      if (arr.length === 0) return;
+      lines.push('## ' + title);
+      lines.push('');
+      arr.forEach(function (it) {
+        lines.push('> ' + it.t.replace(/\s+/g, ' ').trim());
+        if (it.n) { lines.push(''); lines.push('**Note:** ' + it.n.replace(/\n/g, ' ')); }
+        lines.push('');
+      });
+    }
+
+    block('Highlighted', bucket('k'));
+    block('Flagged to come back to', bucket('q'));
+    block('Cards to make', bucket('d'));
+
+    lines.push('---');
+    lines.push('');
+    lines.push('<!-- highlight-data v1, do not edit below this line -->');
+    lines.push('');
+    lines.push(FENCE + 'json');
+    lines.push(JSON.stringify({ doc: DOC_ID, items: items, notes: notes }));
+    lines.push(FENCE);
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  /* Vault-shaped export: a section to sit inside the week note, with EH's
+     highlights as ==marks== so the nightly harvest can pick up the short ones,
+     and his free notes as prose. Deliberately contains none of the generated
+     study note: only what he wrote himself. */
+  function buildVaultMd(bare) {
+    var L = [];
+    /* The Copy button still wants a self-contained section to paste.
+       The server owns those headings when it is doing the writing, so
+       emitting them again would nest a second copy inside the block. */
+    if (!bare) {
+      L.push('## Topic - ' + VAULT.topic);
+      L.push('');
+      L.push('### Part ' + VAULT.part);
+      L.push('');
+    }
+    if (VAULT.keats.indexOf('http') === 0) {
+      L.push('[Lecture](' + VAULT.keats + ')');
+      L.push('');
+    }
+
+    if (notes.length) {
+      L.push('**Notes**');
+      L.push('');
+      notes.slice().sort(function (a, z) { return (a.ts || 0) - (z.ts || 0); }).forEach(function (nt) {
+        if (!nt.text) return;
+        L.push('- ' + nt.text.replace(/\n+/g, ' ').trim());
+      });
+      L.push('');
+    }
+
+    var sorted = items.slice().sort(function (a, z) { return (a.b - z.b) || (a.s - z.s); });
+    function bucket(c) { return sorted.filter(function (i) { return (i.c || 'k') === c; }); }
+
+    function block(title, arr, name) {
+      if (!arr.length) return;
+      L.push('**' + title + '**');
+      L.push('');
+      arr.forEach(function (it) {
+        var t = it.t.replace(/\s+/g, ' ').trim();
+        /* ==mark== is the vault's highlight syntax. Short ones become term
+           candidates; long ones are read as emphasis and left alone, which is
+           the intended behaviour, so prose can be highlighted freely.
+
+           The {kind} after it is EH's design (2026-08-23): the line carries
+           the NAME of its kind, so the meaning survives a colour being
+           renamed, recoloured or retired, and survives the line being moved
+           out of its section by a later sweep. */
+        var tag = String(name || it.c || 'k').toLowerCase();
+        L.push('- ==' + t + '== {' + tag + '}');
+        if (it.n) L.push('    - ' + it.n.replace(/\n+/g, ' ').trim());
+      });
+      L.push('');
+    }
+    /* 🔴 Bucketed by the PALETTE, not by colour literals. Until 2026-08-22
+       this was two literal buckets (k and q), so a highlight in any custom
+       colour was silently dropped from the vault: on the page, in the export,
+       and nowhere in the note. The layer knows the palette (it comes with the
+       settings) and hands it over as STUDY.palette; the literals survive only
+       as the fallback for a page where the layer never loaded, and a colour
+       the palette does not know still publishes, under its own honest
+       heading. */
+    var pal = (window.STUDY && window.STUDY.palette) || [
+      { id: 'k', label: 'Highlights', name: 'highlight' },
+      { id: 'q', label: 'Flagged to come back to', name: 'flag' }
+    ];
+    var bucketed = { d: true };
+    pal.forEach(function (c) {
+      if (c.id === 'd' || bucketed[c.id]) return;
+      bucketed[c.id] = true;
+      block(c.label || c.id, bucket(c.id), c.name || c.label || c.id);
+    });
+    /* No shared name for this bucket: each line tags its own colour id,
+       which is all that is honestly known about it. */
+    block('Other colours', sorted.filter(function (i) {
+      return !bucketed[i.c || 'k'];
+    }));
+
+    /* Define marks use the vault's definition-request syntax: the term on its
+       own line ending in three colons with NOTHING after them. Text after the
+       colons would make it a finished card, which the harvest never touches. */
+    var defs = bucket('d');
+    if (defs.length) {
+      L.push('**Cards to make**');
+      L.push('');
+      defs.forEach(function (it) {
+        L.push(it.t.replace(/\s+/g, ' ').trim() + ':::');
+        L.push('');
+      });
+    }
+
+    return L.join('\n');
+  }
+
+  function toast(msg) {
+    var t = document.createElement('div');
+    t.className = 'hl-toast';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    window.setTimeout(function () { t.remove(); }, 3200);
+  }
+
+  document.getElementById('hlExport').addEventListener('click', function () {
+    if (items.length === 0 && notes.length === 0) return toast('Nothing to export yet.');
+    var md = buildMarkdown();
+    var name = DOC_ID + '-highlights.md';
+
+    if (window.claude && window.claude.downloads) {
+      window.claude.downloads.save({ filename: name, data: md })
+        .then(function () { toast('Saved ' + name); })
+        .catch(function (err) {
+          var code = err && err.code;
+          if (code === 'declined') return;
+          if (code === 'rate_limited') return toast('A save prompt is already open. Try again in a moment.');
+          toast('Save unavailable here. Use Copy instead.');
+        });
+      return;
+    }
+
+    try {
+      var url = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
+      var a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    } catch (err) {
+      toast('Save unavailable here. Use Copy instead.');
+    }
+  });
+
+  document.getElementById('hlVault').addEventListener('click', function () {
+    if (items.length === 0 && notes.length === 0) return toast('Nothing to send yet.');
+    var md = buildVaultMd();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(md)
+        .then(function () { toast('Copied in vault format. Paste into the week note.'); })
+        .catch(function () { saveVault(md); });
+    } else {
+      saveVault(md);
+    }
+  });
+
+  function saveVault(md) {
+    var name = 'KCL ' + VAULT.cls + ' W' + VAULT.week + ' - part ' + VAULT.part + '.md';
+    if (window.claude && window.claude.downloads) {
+      window.claude.downloads.save({ filename: name, data: md })
+        .then(function () { toast('Saved ' + name); })
+        .catch(function (err) {
+          if (err && err.code === 'declined') return;
+          toast('Could not save. Try Copy instead.');
+        });
+      return;
+    }
+    try {
+      var url = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
+      var a = document.createElement('a');
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    } catch (e) { toast('Could not save. Try Copy instead.'); }
+  }
+
+  document.getElementById('hlCopy').addEventListener('click', function () {
+    if (items.length === 0 && notes.length === 0) return toast('Nothing to copy yet.');
+    var md = buildMarkdown();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(md)
+        .then(function () { toast('Copied. Paste it anywhere.'); })
+        .catch(function () { fallbackCopy(md); });
+    } else {
+      fallbackCopy(md);
+    }
+  });
+
+  function fallbackCopy(md) {
+    var ta = document.createElement('textarea');
+    ta.value = md;
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+    ta.remove();
+    toast(ok ? 'Copied. Paste it anywhere.' : 'Copy blocked here. Use Export instead.');
+  }
+
+  document.getElementById('hlImport').addEventListener('change', function (ev) {
+    var file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var text = String(reader.result || '');
+      var data = null;
+      var m = text.match(/highlight-data v1[\s\S]*?```json\s*([\s\S]*?)```/);
+      try {
+        data = JSON.parse(m ? m[1] : text);
+      } catch (err) {
+        return toast('That file does not contain highlight data.');
+      }
+      if (!data || !Array.isArray(data.items)) return toast('That file does not contain saved data.');
+      if (data.doc && data.doc !== DOC_ID) return toast('That file belongs to ' + data.doc + ', not this page.');
+
+      items = data.items;
+      notes = Array.isArray(data.notes) ? data.notes : [];
+      seq = 0; nseq = 0;
+      items.forEach(function (it) { if (it.id >= seq) seq = it.id + 1; });
+      notes.forEach(function (nt) { if (nt.id >= nseq) nseq = nt.id + 1; });
+      save(); renderMarks(); renderPanel();
+      toast('Restored ' + notes.length + ' notes and ' + items.length + ' highlights.');
+    };
+    reader.readAsText(file);
+    ev.target.value = '';
+  });
+
+  document.getElementById('hlClear').addEventListener('click', function () {
+    if (items.length === 0 && notes.length === 0) return;
+    if (!window.confirm('Remove all ' + notes.length + ' notes and ' + items.length +
+        ' highlights on this page? Export first if you want to keep them.')) return;
+    items = [];
+    notes = [];
+    save(); renderMarks(); renderPanel();
+  });
+
+  /* ---------- wiring ---------- */
+
+  document.addEventListener('mouseup', function (e) {
+    if (e.target.closest && e.target.closest('.hl-bar')) return;
+    window.setTimeout(onSelect, 0);
+  });
+  document.addEventListener('keyup', function (e) {
+    if (!e.key) return;
+    if (e.key === 'Shift' || e.key.indexOf('Arrow') === 0) window.setTimeout(onSelect, 0);
+  });
+
+  Array.prototype.forEach.call(bar.querySelectorAll('button[data-c]'), function (b) {
+    b.addEventListener('mousedown', function (ev) { ev.preventDefault(); });
+    b.addEventListener('click', function () { add(b.getAttribute('data-c')); });
+  });
+
+  document.addEventListener('click', function (e) {
+    var m = e.target.closest && e.target.closest('mark.hl');
+    if (!m || !m.dataset) return;
+    openPanel();
+    var row = list.querySelector('[data-item="' + m.dataset.id + '"]');
+    if (!row) return;
+    row.scrollIntoView({ block: 'center' });
+    var ta = row.querySelector('textarea');
+    if (ta) ta.focus();
+  });
+
+  document.addEventListener('scroll', hideBar, { passive: true });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { hideBar(); closePanel(); }
+  });
+
+  fab.addEventListener('click', function () { panel.hidden ? openPanel() : closePanel(); });
+  document.getElementById('hlClose').addEventListener('click', closePanel);
+  document.getElementById('hlAddNote').addEventListener('click', addNote);
+
+  /* ---------- go ---------- */
+
+
+  /* study-surface:start */
+  /* The block's own text, plus the nearest heading above it, is what Explain
+     is given so it can answer about THIS use of a term rather than the general
+     one. Nothing else leaves the machine. */
+  function contextFor(block) {
+    var head = '', el = block.previousElementSibling, hops = 0;
+    while (el && hops < 14) {
+      if (/^H[1-4]$/.test(el.tagName)) { head = el.textContent.trim(); break; }
+      el = el.previousElementSibling; hops++;
+    }
+    var txt = block.textContent.trim();
+    return head ? ('Section: ' + head + '\n\n' + txt) : txt;
+  }
+
+  /* The only surface the local-server layer is allowed to touch. Keeping it
+     this small is what stops that layer from having to know how highlights
+     work. */
+  window.STUDY = {
+    docId:  DOC_ID,
+    title:  DOC_TITLE,
+    vault:  VAULT,
+    bar:    bar,
+    vaultMd: function () { return buildVaultMd(true); },
+    toast:  toast,
+    hideBar: hideBar,
+    blockAt: function (i) { return blocks[i] || null; },
+    onChange: function (fn) { syncHooks.push(fn); },
+    marks: function () { return { items: items, notes: notes }; },
+    /* Write what marks() handed out, without re-rendering. R37 needs it: a
+       note on a highlight autosaves while it is being typed, and going through
+       replaceMarks would rebuild the panel and take the focus out of the box
+       being typed into. */
+    persist: function () { save(); },
+    /* Used to restore from the on-disk copy. Same path the Import button takes,
+       so there is one way for marks to arrive from outside, not two. */
+    replaceMarks: function (i, n) {
+      items = Array.isArray(i) ? i : [];
+      notes = Array.isArray(n) ? n : [];
+      seq = 0; nseq = 0;
+      items.forEach(function (it) { if (it.id >= seq) seq = it.id + 1; });
+      notes.forEach(function (nt) { if (nt.id >= nseq) nseq = nt.id + 1; });
+      save(); renderMarks(); renderPanel();
+    },
+    blockHtml: function (i) { return blocks[i] ? blocks[i].innerHTML : ''; },
+    blockText: function (i) { return blocks[i] ? blocks[i].textContent : ''; },
+    /* _orig is what renderMarks repaints from, so an edit that does not update
+       it is undone by the next highlight. */
+    setBlockHtml: function (i, h) {
+      var el = blocks[i];
+      if (!el) return false;
+      el.innerHTML = h;
+      el._orig = h;
+      renderMarks();
+      return true;
+    },
+    selection: function () {
+      if (!pending || !pending.length) return null;
+      var first = pending[0];
+      var block = blocks[first.b];
+      if (!block) return null;
+
+      /* A selection can now cross blocks, so the text is every piece joined.
+         Look up and Explain want the whole phrase; Rewrite edits one paragraph
+         and takes the first, which the editor names in its header. */
+      var text = pending.map(function (seg) {
+        var el = blocks[seg.b];
+        return el ? el.textContent.slice(seg.s, seg.e) : '';
+      }).join(' ').replace(/\s+/g, ' ').trim();
+
+      var rect = null, sel = window.getSelection();
+      if (sel && sel.rangeCount && !sel.isCollapsed) {
+        try { rect = sel.getRangeAt(0).getBoundingClientRect(); } catch (err) { rect = null; }
+      }
+      if (!rect || (!rect.width && !rect.height)) rect = bar.getBoundingClientRect();
+      return {
+        text: text,
+        context: contextFor(block),
+        b: first.b, s: first.s, e: first.e,
+        blocks: pending.length,
+        /* Block plus offsets rather than a live Range, so the selection can be
+           redrawn after a repaint has detached the original nodes. */
+        segments: pending.map(function (sg) { return { b: sg.b, s: sg.s, e: sg.e }; }),
+        rect: rect
+      };
+    }
+  };
+  /* study-surface:end */
+
+  /* study-reanchor:start */
+  /* A mark stores a block index and character offsets. Anything that changes
+     what counts as a block, or rewrites a note, moves those indices and would
+     otherwise leave every mark pointing at the wrong paragraph. So on load,
+     check each mark against the text it recorded, and if it no longer matches,
+     find that text again. Searching outward from the original index keeps a
+     repeated phrase anchored near where it was. */
+  function reanchor() {
+    var fixed = 0, lost = 0;
+    items.forEach(function (it) {
+      if (!it.t) return;
+      var here = blocks[it.b];
+      if (here && here.textContent.slice(it.s, it.e) === it.t) { it.orphan = false; return; }
+
+      var order = [], i;
+      for (i = 0; i < blocks.length; i++) order.push(i);
+      order.sort(function (a, z) { return Math.abs(a - it.b) - Math.abs(z - it.b); });
+
+      for (i = 0; i < order.length; i++) {
+        var at = blocks[order[i]].textContent.indexOf(it.t);
+        if (at >= 0) {
+          it.b = order[i]; it.s = at; it.e = at + it.t.length; it.orphan = false;
+          fixed++;
+          return;
+        }
+      }
+      it.orphan = true;
+      lost++;
+    });
+    if (fixed || lost) save();
+    return { fixed: fixed, lost: lost };
+  }
+  /* study-reanchor:end */
+
+  load();
+  var _re = reanchor();
+  renderMarks();
+  renderPanel();
+  if (_re.fixed) toast('Re-anchored ' + _re.fixed +
+      (_re.fixed === 1 ? ' highlight after the note changed.' :
+                         ' highlights after the note changed.'));
+})();
+</script>
+
+@@LAYER@@

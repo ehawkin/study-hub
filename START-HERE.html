@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Study Hub: start here</title>
+<style>
+  /* Light is the base. Dark redefines only the tokens, so nothing can end up
+     with one theme's text on the other theme's ground. */
+  :root {
+    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C;
+    --muted:#64777F; --rule:#D8E0DE; --accent:#1C6D61; --accent-wash:#DDEBE7;
+    --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+    --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:#121A1E; --surface:#182328; --ink:#DFE7E7; --ink-soft:#B4C4C6;
+      --muted:#85989C; --rule:#27353B; --accent:#6EC0B0; --accent-wash:#17332F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:#121A1E; --surface:#182328; --ink:#DFE7E7; --ink-soft:#B4C4C6;
+    --muted:#85989C; --rule:#27353B; --accent:#6EC0B0; --accent-wash:#17332F;
+  }
+
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:48px 24px 96px; background:var(--paper); color:var(--ink);
+    font-family:var(--body); font-size:17px; line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap { max-width:40rem; margin:0 auto; }
+
+  h1 {
+    font-family:var(--display); font-size:2.1rem; font-weight:600;
+    margin:0 0 .3em; line-height:1.15; text-wrap:balance;
+  }
+  .sub { color:var(--ink-soft); font-size:1.08rem; margin:0 0 2.5rem; max-width:34rem; }
+
+  h2 {
+    font-family:var(--display); font-size:1.15rem; font-weight:600;
+    margin:0 0 .4rem; line-height:1.3;
+  }
+  p { margin:0 0 1rem; }
+  p:last-child { margin-bottom:0; }
+
+  /* The steps genuinely are a sequence, so they are numbered. */
+  ol.steps { list-style:none; counter-reset:step; margin:0; padding:0;
+             display:flex; flex-direction:column; gap:14px; }
+  ol.steps li {
+    counter-increment:step; position:relative;
+    background:var(--surface); border:1px solid var(--rule); border-radius:12px;
+    padding:20px 22px 20px 68px;
+  }
+  ol.steps li::before {
+    content:counter(step);
+    position:absolute; left:20px; top:19px;
+    width:30px; height:30px; border-radius:50%;
+    background:var(--accent-wash); color:var(--accent);
+    font-family:var(--mono); font-size:.95rem; font-weight:600;
+    display:flex; align-items:center; justify-content:center;
+  }
+  ol.steps li p { color:var(--ink-soft); }
+
+  .say {
+    display:inline-block; font-family:var(--mono); font-size:1rem;
+    background:var(--accent-wash); color:var(--accent);
+    padding:3px 10px; border-radius:6px; border:1px solid var(--rule);
+  }
+  a { color:var(--accent); }
+
+  .after {
+    margin-top:2.5rem; padding-top:1.6rem; border-top:1px solid var(--rule);
+  }
+  .after h2 { margin-bottom:.6rem; }
+  .after p { color:var(--ink-soft); }
+  .note {
+    margin-top:1.4rem; padding:14px 18px; border-left:3px solid var(--accent);
+    background:var(--surface); border-radius:0 8px 8px 0;
+  }
+  .note p { margin:0; color:var(--ink-soft); font-size:.95rem; }
+  footer { margin-top:3rem; color:var(--muted); font-size:.87rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Read your lectures properly</h1>
+  <p class="sub">
+    Slides and transcripts become lessons you can highlight, annotate and revise
+    from, in your browser, on your own machine. Three steps, and no terminal.
+  </p>
+
+  <ol class="steps">
+    <li>
+      <h2>Install Claude</h2>
+      <p>
+        Get the desktop app from
+        <a href="https://claude.ai/download">claude.ai/download</a> and sign in.
+        If you already have it, skip this.
+      </p>
+    </li>
+    <li>
+      <h2>Open this folder in it</h2>
+      <p>
+        Start a <strong>Code</strong> session and use the folder picker to choose
+        the folder this page is sitting in.
+      </p>
+    </li>
+    <li>
+      <h2>Say what you want</h2>
+      <p>
+        Type <span class="say">set me up</span> and press return. It writes its
+        settings, starts Study Hub, opens it in your browser, and asks what you
+        would like to read.
+      </p>
+    </li>
+  </ol>
+
+  <div class="after">
+    <h2>What happens after that</h2>
+    <p>
+      It will ask where your lessons are coming from. You can import lessons
+      somebody sent you, download a course from KEATS in your own browser, or
+      point it at a folder of slides and transcripts you already have.
+    </p>
+    <p>
+      It will also offer to keep Study Hub running after you restart your
+      machine. Say yes, bookmark the page it opens, and you are finished with
+      the setup for good.
+    </p>
+
+    <div class="note">
+      <p>
+        <strong>Everything stays on your computer.</strong> Your highlights and
+        notes are ordinary files on your own disk, beside your lessons. There is
+        no account, nothing is uploaded, and there is nothing to pay for.
+      </p>
+    </div>
+  </div>
+
+  <footer>
+    Prefer to do it by hand? <code>README.md</code> in this folder has the two
+    commands, and the instructions in <code>.claude/skills/</code> read perfectly
+    well as documentation.
+  </footer>
+
+</div>
+</body>
+</html>
