@@ -17,6 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "server"))
 import study_server as S
 import split_lessons as SPLIT
+from doi_sidecar import DOI_SIDECAR, load_doi_exceptions
 
 
 def crossref_agent():
@@ -513,46 +514,13 @@ if "--dois" in sys.argv:
                 out.add(dp[0][0])
         return out
 
-    # Labels that are a bare DOI or a journal string carry no author to match on.
-    # Each was checked against its record by hand on 2026-08-12.
-    SKIP = {"10.1001/archgenpsychiatry.2010.144", "10.3389/fnhum.2014.01051",
-            "10.3389/fnhum.2015.00058", "10.1186/1475-2859-12-71",
-            "10.1007/s00394-019-01970-1",
-            "10.1038/s41380-026-03469-8",   # the Desbonnet correction, linked by its own DOI
-            "10.1016/j.pnpbp.2005.02.001",  # the Schiepers erratum, same
-            "10.1038/npp.2016.181",         # the Mahableshwarkar erratum, same
-            "10.1186/s12916-018-1220-6",    # the Jacka correction, linked as the word "correction"
-            "10.1016/s2215-0366(25)00235-4",   # the PAX-D correction, linked by its own DOI
-            "10.1212/01.WNL.0000156290.58489.54",  # linked by its own DOI in W4 T2 P4,
-            # 🔴 CrossRef stores this record's first author double-encoded, as
-            # "Vidal-PiA±eiro" rather than "Vidal-Piñeiro", so no correct label can match it.
-            # Checked by hand 2026-08-22 against title and journal: it is the right paper.
-            "10.3389/fnagi.2014.00256"}   # and to show what a printed footnote resolves to
-    # Known and flagged on the page rather than dropped.
-    NOTED = {"10.1038/mp.2013.65": "correction, flagged in W3 T1 P3",
-             "10.1038/npp.2015.52": "erratum, flagged in W4 T2 P4",
-             "10.1016/s0140-6736(16)00620-6": "erratum, flagged in W5 T1 P1",
-             "10.1186/s12916-017-0791-y": "correction, flagged in W5 T1 P1",
-             "10.1016/s2215-0366(25)00194-4": "erratum, flagged in W5 T4 P2",
-             # 7PAYFMND. The corrigendum is linked by its own DOI beside the paper.
-             "10.1016/j.ijpsycho.2015.04.017": "corrigendum, flagged in 7PAYFMND W2 T3 P1",
-             "10.1371/journal.pone.0123512": "correction, flagged in 7PAYFMND W2 T3 P2",
-             "10.1007/s11682-018-9858-4": "correction, flagged in 7PAYFMND W3 T1 P1",
-             "10.1073/pnas.0604187103": "correction, flagged in 7PAYFMND W3 T2 P2",
-             "10.1073/pnas.0809141106": "correction, flagged in 7PAYFMND W3 T2 P3",
-             "10.1016/j.cpr.2015.01.006": "corrigendum, flagged in 7PAYFMND W4 T1 P1",
-             "10.1038/nrn3916": "erratum, flagged in 7PAYFMND W4 T1 P1",
-             "10.1016/j.psyneuen.2019.05.020": "corrigendum and addendum, flagged in 7PAYFMND W4 T1 P2",
-             "10.1016/j.psyneuen.2019.104440": "the corrigendum itself carries an addendum, "
-                                               "both flagged in 7PAYFMND W4 T1 P2",
-             "10.1007/s12671-018-0899-y": "correction, flagged in 7PAYFMND W4 T2 P1",
-             # A RETRACTION, not a correction. The paper is cited on the page as a
-             # retracted paper, with the notice linked beside it, and never as evidence.
-             "10.1371/journal.pone.0124344": "RETRACTED 2019-04-12, flagged in 7PAYFMND W5 T1 P3",
-             "10.1016/j.brat.2010.04.006": "corrigendum, flagged in 7PAYFMND W5 T1 P3",
-             # The mirror image of the Godfrin case: CrossRef carries this one's
-             # updated-by link and PubMed's record shows no "Erratum in" line at all.
-             "10.1016/j.concog.2014.07.002": "corrigendum, flagged in 7PAYFMND W5 T3 P1"}
+    # The DOIs this course has already had judged by hand: `skip` for labels that carry
+    # no author to compare against, `noted` for papers whose published correction is
+    # already linked on the page. Both live beside the course, not in this file.
+    SKIP, NOTED, _sidecar_problems = load_doi_exceptions(NOTES_DIR)
+    for _problem in _sidecar_problems:
+        print("  SIDECAR  %s" % _problem)
+        fails.append("doi sidecar")
 
     seen = collections.OrderedDict()
     for p in NOTES:

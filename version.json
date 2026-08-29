@@ -1,5 +1,5 @@
 {
- "version": "2026.08.29+97276cc",
- "url": "https://github.com/ehawkin/study-hub-kit/releases/latest",
- "note": "First public release."
+ "version": "2026.08.29+26b45a8",
+ "url": "https://github.com/ehawkin/study-hub/releases/latest",
+ "note": "Point a course at your own materials folder, share courses without private links, and a rebuilt clean archive."
 }

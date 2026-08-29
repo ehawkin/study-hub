@@ -116,8 +116,8 @@ def _one(raw, where):
         return None, "%s has a doc id and no link of any kind" % where
     # 🔴 A supplied video_kind is kept, and the default is earned rather than
     # assumed. The old default called ANY keats link "Activity permalink
-    # (Kaltura)", and 7PAYFMND delivers 29 of 38 lectures as mod/resource slide
-    # packages with no video anywhere, so the reader told the student each of
+    # (Kaltura)", and one real module delivers 29 of 38 lectures as mod/resource
+    # slide packages with no video anywhere, so the reader told the student each of
     # them was a Kaltura activity. Kaltura is claimed only on evidence of it:
     # an entry id, or kalvidres in the link itself.
     kind = str(raw.get("video_kind") or "").strip()

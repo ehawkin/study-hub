@@ -62,6 +62,17 @@ KEATS_KEYS = ("video", "video_kind", "minutes", "entry")
 DRIVE_KEYS = ("slides", "slides_embed", "transcript", "transcript_embed")
 
 
+def count_drive(cfg, doc_ids):
+    """How many of these lessons have Drive links that an export is withholding."""
+    folder = module_folder(cfg)
+    n = 0
+    for doc in doc_ids:
+        mats = materials_of(folder, doc) or {}
+        if any(k in mats for k in DRIVE_KEYS):
+            n += 1
+    return n
+
+
 class Problem(Exception):
     pass
 
@@ -142,11 +153,19 @@ def make_pack(content, links):
 
 # --------------------------------------------------------------------------
 
-def export(cfg, doc_ids, out_dir, with_links=True, quiet=False):
+def export(cfg, doc_ids, out_dir, with_links=True, with_drive=False, quiet=False):
+    """Write one pack per lesson. Returns the files written.
+
+    🔴 `with_drive` defaults to FALSE, and that default is EH's ruling of 2026-08-28:
+    "they definitely should not be pulling it from our Google Drive." The `drive` keys are
+    addresses on the exporter's OWN Drive mirror, so a recipient either cannot open them or
+    is reading files out of somebody else's account; the KEATS keys stay, because they gate
+    on the recipient's own enrolment, which is the boundary working. Pass True only for
+    machine-to-machine copies between your own installs."""
     folder = module_folder(cfg)
     out_dir = Path(out_dir).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
-    written, drive_linked = [], 0
+    written, drive_linked, drive_withheld = [], 0, 0
     for doc in doc_ids:
         path = lesson_for(folder, doc)
         content = path.read_text(encoding="utf-8")
@@ -164,10 +183,17 @@ def export(cfg, doc_ids, out_dir, with_links=True, quiet=False):
                              "class": cfg.get("class_name") or ""},
                     "made": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     "keats": {k: mats[k] for k in KEATS_KEYS if k in mats},
-                    "drive": {k: mats[k] for k in DRIVE_KEYS if k in mats},
                 }
-                if links["drive"]:
+                # The key is omitted rather than emptied when it is withheld, so a pack
+                # says nothing about a Drive it is not offering. Older readers already
+                # read it as `links.get("drive") or {}`, so nothing has to change to
+                # accept one.
+                drive = {k: mats[k] for k in DRIVE_KEYS if k in mats}
+                if drive and with_drive:
+                    links["drive"] = drive
                     drive_linked += 1
+                elif drive:
+                    drive_withheld += 1
         target = out_dir / (path.stem + PACK_SUFFIX)
         target.write_text(make_pack(content, links), encoding="utf-8")
         written.append(target)
@@ -178,11 +204,19 @@ def export(cfg, doc_ids, out_dir, with_links=True, quiet=False):
     if not quiet:
         print("\n%d pack%s in %s" % (len(written), "" if len(written) == 1 else "s", out_dir))
         if drive_linked:
-            print("🔴 %d of them carry Google Drive links to the slides and transcripts.\n"
-                  "   Those work only for someone the Drive folder is shared with. The KEATS\n"
-                  "   lecture link and the video work for anyone enrolled on the module.\n"
-                  "   Use --no-links to share the lesson with no addresses at all."
+            print("🔴 %d of them carry Google Drive links to the slides and transcripts,\n"
+                  "   because you asked for them with --with-drive. Those are addresses on\n"
+                  "   YOUR Drive: they work only for someone that folder is shared with, and\n"
+                  "   sharing it hands them your account's files. Meant for copying between\n"
+                  "   your own installs, not for sending to a coursemate."
                   % drive_linked)
+        elif drive_withheld:
+            print("%d of them had Google Drive links to the slides and transcripts, and\n"
+                  "   those were NOT included: they are addresses on your own Drive. The\n"
+                  "   KEATS lecture link and the video ARE included and work for anyone\n"
+                  "   enrolled on the module. The recipient points their own copy at their\n"
+                  "   own materials folder. (--with-drive keeps them, for your own installs.)"
+                  % drive_withheld)
         # 🔴 Said at export, because it is invisible until the recipient clicks.
         # A lesson cross-links to its siblings ("Part 2", "see W2-T3-P5"), and
         # a link to a lesson that was not shared resolves to nothing on their
@@ -250,7 +284,7 @@ def course_sidecars(cfg, folder):
     return out if n else None
 
 
-def export_course(cfg, out_dir, with_links=True, quiet=True):
+def export_course(cfg, out_dir, with_links=True, with_drive=False, quiet=True):
     """Everything a friend needs, as one folder and one zip: every lesson as a
     pack, plus the course pack (glossary, readings, mistakes). Returns
     (zip_path, report dict)."""
@@ -262,9 +296,13 @@ def export_course(cfg, out_dir, with_links=True, quiet=True):
     docs = [d for d in docs if d]
     if not docs:
         raise Problem("this course has no lessons to share")
-    written = export(cfg, docs, out_dir, with_links=with_links, quiet=quiet)
+    written = export(cfg, docs, out_dir, with_links=with_links,
+                     with_drive=with_drive, quiet=quiet)
     report = {"lessons": len(written), "glossary": 0, "readings": 0,
-              "mistakes": 0}
+              "mistakes": 0,
+              # What the recipient will NOT be able to open, so the page can say so
+              # rather than leaving them to discover an empty Materials pane.
+              "drive_withheld": count_drive(cfg, docs) if not with_drive else 0}
     pack = course_sidecars(cfg, folder)
     if pack:
         (out_dir / (COURSE_PACK_NAME % code)).write_text(
@@ -475,6 +513,10 @@ def main():
     ap.add_argument("--import", dest="imp", nargs="+", metavar="PATH",
                     help="a pack, or a folder of them")
     ap.add_argument("--no-links", action="store_true", help="no KEATS or Drive addresses")
+    ap.add_argument("--with-drive", action="store_true",
+                    help="also include YOUR Google Drive addresses for the slides and "
+                         "transcripts. Off by default (EH, 2026-08-28); for copying "
+                         "between your own installs, not for sending to a coursemate")
     ap.add_argument("--force", action="store_true", help="replace lessons that are already there")
     args = ap.parse_args()
 
@@ -524,7 +566,8 @@ def main():
             docs = args.export or [p.name.split("-")[0] + "-" + p.name.split("-")[1]
                                    + "-" + p.name.split("-")[2]
                                    for p in lessons_in(module_folder(cfg))]
-            export(cfg, docs, args.to, with_links=not args.no_links)
+            export(cfg, docs, args.to, with_links=not args.no_links,
+                   with_drive=args.with_drive)
         elif args.imp:
             import_packs(cfg, args.imp, with_links=not args.no_links, force=args.force)
         else:

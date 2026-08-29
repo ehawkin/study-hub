@@ -94,7 +94,19 @@ materials/<CODE>/
 ```
 
 The form is `<DOC> - <Kind> (<original name without extension>).pdf`, where
-Kind is `Slides` or `Transcript`. Drop the parenthetical only when the
+Kind is `Slides` or `Transcript`.
+
+🔴 **That form is not a tidiness convention, it is the wiring.** The reader finds
+a downloaded file by looking in the materials folder for a name beginning
+`<DOC> - Slides` or `<DOC> - Transcript`. Get the form wrong and the file is on
+disk and invisible. Nothing else has to be written down for it to be found.
+
+**When the download is finished, tell them the last step**, because it is a
+choice only they can make: on the course's setup page, under *Where the slides
+and transcripts come from*, pick **From a folder on this machine**. Until they
+do, the pane keeps linking out to the course site, which is the other honest
+answer and the default. The page then says how many parts it found a file for,
+which is where a wrong folder or a mis-named download shows up. Drop the parenthetical only when the
 original name IS already the standard form, so nothing reads twice. Write the
 names you actually used into `materials.json`, which is what everything else
 reads; the parenthetical is for the person browsing the folder, including any
@@ -134,8 +146,11 @@ is also what the reader's Materials pane runs on:
 
 - `order` is the order the student meets them in, and it drives the reader's
   back and forward buttons. Get it right; it is the field they feel.
-- `slides` and `transcript` may be a local path or a URL. A local path is the
-  honest answer when the file is on their disk.
+- `slides` and `transcript` are the **course site's** addresses. Put the URL
+  here even when you have just downloaded the file, and do NOT write a local
+  path: the reader resolves local files by NAME out of the materials folder
+  (see below), so a path here is a second answer that can disagree with the
+  first.
 - `href` is the lesson file, once one exists. Leave it out until then.
 - Everything is optional except `title`. **A part with no video is normal.** Say
   nothing rather than inventing a link, because the reader tells the student
