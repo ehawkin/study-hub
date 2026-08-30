@@ -15,6 +15,39 @@ there is nothing to pay for.
 
 ---
 
+## Before you start
+
+**You do not need to know what Python is**, and you do not need to install
+anything by hand. Read this once and you can forget it.
+
+**The one-double-click way.** In this folder there is a file called
+**`Start Study Hub.command`**. Double-click it. A Terminal window opens, prints a
+line or two, and your browser opens on the reader. You can close the Terminal
+window afterwards; Study Hub keeps running. Double-click it again any time; if it
+is already running it just opens the page.
+
+🔴 **The first time only, macOS will not let you open it**, because the file came
+from the internet. It says something like *"cannot be opened because it is from an
+unidentified developer"*. That is normal and it is not a problem with the file.
+**Right-click** (or Control-click) `Start Study Hub.command`, choose **Open**, and
+then click **Open** in the dialog. macOS remembers, and every later double-click
+works normally.
+
+🔴 **You may also see one grey Apple dialog** saying *"The `python3` command
+requires the command line developer tools"*. Click **Install** and wait; it is
+Apple's own installer, it takes a few minutes, and it happens once ever. The
+script tells you about this before it appears, and afterwards you just
+double-click `Start Study Hub` again.
+
+**Which computers this works on.** This kit is exercised on **macOS** only. It is
+plain Python and plain HTML with nothing Mac-specific in the reader itself, so it
+very likely works elsewhere, but nobody has tested it on Windows or Linux and the
+`.command` file is a Mac thing. If you are on Windows, the commands under *"If you
+would rather not use Claude for it"* at the bottom are your route, and please tell
+whoever gave you this how it went.
+
+---
+
 ## Getting started
 
 You need two things:

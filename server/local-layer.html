@@ -18,6 +18,14 @@ What it adds when the server is there:
      with no background declared falls back to the UA's near-white, which put
      near-white text on near-white in the dark theme. Every one of these takes
      its colours from tokens so both themes are covered. */
+  /* 🔴 Reduced bar for a selection with no block anchor (diagram text). The
+     default is HIDDEN: a control has to declare that it works on words alone,
+     so a button added next year is not silently offered somewhere it cannot
+     work. Highlight, Card, Bookmark and Rewrite all need a block; Look up and
+     Ask need only the string. */
+  .hl-bar.sv-textonly > *:not([data-textok]) { display: none; }
+  .hl-bar.sv-textonly { gap: 4px; }
+
   .hl-bar button.sv-act {
     background: var(--paper);
     color: var(--ink);
@@ -143,7 +151,10 @@ What it adds when the server is there:
   .sv-ask textarea {
     flex: 1; font: 13.5px/1.5 var(--body); color: var(--ink); background: var(--paper);
     border: 1px solid var(--rule); border-radius: 5px; padding: 8px 10px;
-    resize: none; min-height: 38px; max-height: 120px;
+    /* Two lines of 13.5px/1.5 text (40.5px) plus 8px padding each side and the
+       1px borders. Kept as a floor rather than a fixed height so the box still
+       grows as somebody types. */
+    resize: none; min-height: 59px; max-height: 120px;
   }
   .sv-ask button {
     align-self: flex-end; font: 600 12px var(--body);
@@ -151,6 +162,23 @@ What it adds when the server is there:
     border-radius: 5px; padding: 9px 14px; cursor: pointer;
   }
   .sv-ask button[disabled] { opacity: .45; cursor: default; }
+  /* 🔴 The Shift+Enter affordance lives HERE, under the box, and not inside the
+     placeholder. QA measured the old arrangement: the placeholder needed 41px in
+     a 20px one-row box, so the half that taught Shift+Enter was invisible on
+     every device without a stored panel width.
+
+     Making the box two rows fixed the default width and NOT the narrowest one:
+     at the 320px minimum panel the placeholder still wants three lines and gets
+     two. A textarea's placeholder cannot wrap past its fixed height, so any
+     answer that leaves the text in there is a bet on the window being wide
+     enough. A div has no such limit: this wraps, and nothing clips it at any
+     width. */
+  .sv-askhint {
+    padding: 0 13px 9px; margin-top: -4px;
+    font: 11.5px/1.45 var(--body); color: var(--muted);
+    background: var(--surface); border-bottom: 1px solid var(--rule);
+  }
+  .sv-askhint[hidden] { display: none; }
   .sv-src { padding: 9px 0; border-top: 1px solid var(--rule-soft); }
   .sv-src:first-child { border-top: 0; padding-top: 3px; }
   .sv-src .lab {
@@ -427,11 +455,30 @@ What it adds when the server is there:
   .sv-matwhy a:hover { border-color: var(--regulated); }
 
   /* ---- the highlight colour picker ---- */
+  /* 🔴 inline-flex, and that is the fix rather than a preference. The button's
+     content is an SVG followed by the caret span, and `.sv-palbtn svg` is
+     `display:block` (it has to be: an inline SVG sits on the text baseline and
+     leaves a descender gap under it). In a non-flex button a block child takes
+     the whole line, so the caret was pushed UNDERNEATH the pen instead of
+     sitting beside it. EH, 2026-08-29, with a screenshot: bigger, and to the
+     right. Flex puts them on one row without the svg having to go back to
+     inline, so R23's icon-colour variables riding on it are untouched. */
   .sv-palbtn {
+    display: inline-flex; align-items: center; gap: 4px;
     font: 13px var(--body); line-height: 1; color: var(--muted);
     background: var(--surface); border: 1px solid var(--rule); border-radius: 5px;
     padding: 6px 8px; cursor: pointer;
   }
+  /* 🔴 A course name is arbitrary length where a code was always eight
+     characters, so the crumb is now the one part of the header that could push
+     the nav off the row. Capped and ellipsized instead: the full name stays in
+     the link's title for anyone who needs it. */
+  .sv-crumbname {
+    display: inline-block; max-width: 22ch; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+  }
+  @media (max-width: 700px) { .sv-crumbname { max-width: 12ch; } }
+
   .sv-palbtn:hover { border-color: var(--hl-d-line); color: var(--hl-d-line); }
   .sv-palbtn:focus-visible { outline: 2px solid var(--hl-d-line); outline-offset: 2px; }
 
@@ -451,6 +498,36 @@ What it adds when the server is there:
     :root:not([data-theme="light"]) .sv-palbtn .ink { fill: var(--sv-icold, var(--sv-icol, var(--hl-key))); }
   }
   :root[data-theme="dark"] .sv-palbtn .ink { fill: var(--sv-icold, var(--sv-icol, var(--hl-key))); }
+
+  /* The selection toolbar's highlight button, painted the same way, and for the
+     same reason: an inline background cannot ask which theme is on.
+
+     🔴 Reported by QA 2026-08-29: in dark mode it rendered #dfe7e7 on #f3ddbe,
+     a contrast of 1.05:1, which is not "low" but invisible, the label at the
+     same luminance as its own background. Every other button in the bar
+     measured 9.59:1 or better. syncHighlightButton() ended with
+     `b.style.background = c.color`, the palette's LIGHT value, and an inline
+     style beats the theme while the label colour followed the theme as normal.
+
+     Keyed on a marker class rather than [data-c], because the button KEEPS its
+     original `class="k"` while its data-c is retargeted to the current colour,
+     so `.hl-bar button.k` (0,2,1) still supplies a background underneath. The
+     :root prefix takes these to (0,3,1) and settles it by specificity rather
+     than by which stylesheet happens to be injected last. */
+  :root .hl-bar button.sv-hlbtn {
+    background: var(--sv-hlbg, var(--hl-key));
+    color: var(--sv-hlink, inherit);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .hl-bar button.sv-hlbtn {
+      background: var(--sv-hlbgd, var(--sv-hlbg, var(--hl-key)));
+      color: var(--sv-hlinkd, var(--sv-hlink, inherit));
+    }
+  }
+  :root[data-theme="dark"] .hl-bar button.sv-hlbtn {
+    background: var(--sv-hlbgd, var(--sv-hlbg, var(--hl-key)));
+    color: var(--sv-hlinkd, var(--sv-hlink, inherit));
+  }
 
   .sv-pal {
     position: absolute; z-index: 97; width: min(310px, 92vw);
@@ -520,7 +597,9 @@ What it adds when the server is there:
   .sv-swatch.deleting [data-confirmdel]:hover {
     background: var(--broken); color: var(--paper); border-color: var(--broken);
   }
-  .sv-palbtn .pcaret { font-size: 9px; margin-left: 2px; opacity: .75; }
+  /* 12px, up from 9px: at 9px it read as a speck rather than a control. The
+     margin is gone because the button's own `gap` now does that job. */
+  .sv-palbtn .pcaret { font-size: 12px; opacity: .75; }
   .sv-paladd {
     display: flex; gap: 6px; align-items: center;
     margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule);
@@ -1383,6 +1462,12 @@ What it adds when the server is there:
     font: 600 12.5px var(--body); border: 1px solid var(--hl-d-line); background: var(--hl-d);
     color: var(--ink); border-radius: 5px; padding: 8px 16px; cursor: pointer;
   }
+  /* Quieter than Save, because it is the second choice and not the cancel of a
+     destructive act. Same size, so it is as easy to hit. */
+  .sv-token .sv-tokclose {
+    border-color: var(--rule); background: var(--surface); color: var(--muted);
+  }
+  .sv-token .sv-tokclose:hover { border-color: var(--hl-d-line); color: var(--ink); }
 
   @media print { .sv-pop, .sv-badge, .sv-edit, .sv-scrim { display: none !important; } }
 
@@ -1446,6 +1531,28 @@ What it adds when the server is there:
   .sv-headhome:focus-visible { outline: 2px solid var(--hl-d-line); outline-offset: 2px; }
   .sv-headcrumbs { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
   .sv-crumbsep { color: var(--muted); }
+
+  /* 🔴 Rating this lesson from inside it. EH, 2026-08-29: "while I'm looking at
+     the lesson, I can be like, 'Oh, I really like this one,' or 'I found this
+     really interesting.'" Same two scales and the same keys as the hub rows, so
+     a mark set here shows there with no sync step: the store is one.
+
+     Sits between the crumb and the tools, which is the one part of the header
+     that is empty at every width. Hidden below 700px, where the header already
+     collapses to a burger and there is no room for ten more targets. */
+  .sv-headrate { display: inline-flex; align-items: center; gap: 8px;
+                 margin-left: 12px; }
+  .sv-headrate .sv-rgrp { display: inline-flex; }
+  .sv-rbtn { font-size: 14px; line-height: 1; padding: 2px 1px; cursor: pointer;
+             background: none; border: 0; color: var(--rule); }
+  .sv-rbtn:hover { transform: scale(1.15); }
+  .sv-rbtn.star.on { color: var(--accent, var(--hl-d-line)); }
+  /* An emoji carries its own colour, so `color` cannot dim it the way it dims a
+     star; greyed and faded is the off state. Same rule as the hub's bulbs. */
+  .sv-rbtn.bulb { filter: grayscale(1); opacity: .4; font-size: 12px; }
+  .sv-rbtn.bulb.on { filter: none; opacity: 1; }
+  .sv-rbtn:focus-visible { outline: 2px solid var(--hl-d-line); outline-offset: 1px; }
+  @media (max-width: 700px) { .sv-headrate { display: none; } }
 
   /* Deliberately the SHORT form of the identity and not the title. A header of
      fixed height cannot wrap, and R18 item 1 was about titles being cut off, so
@@ -1928,7 +2035,7 @@ What it adds when the server is there:
       font-size: 16px !important;
     }
     /* A 16px composer needs the room to be 16px in. */
-    .sv-ask textarea { min-height: 46px; }
+    .sv-ask textarea { min-height: 64px; }   /* two rows at the phone's 15px */
     .sv-ask button { min-height: 46px; padding: 10px 15px; font-size: 13px; }
   }
 
@@ -2079,12 +2186,33 @@ What it adds when the server is there:
   var S = window.STUDY;
   if (!S) return;
 
-  /* A published artifact cannot reach anything. Detect the local server by
-     origin and stay completely invisible otherwise. */
-  var onServer = /^https?:$/.test(location.protocol) && (
-    /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname) ||
-    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(location.hostname)  /* Tailscale */
-  );
+  /* A published artifact cannot reach anything, so the layer stays completely
+     invisible unless this page is being SERVED.
+
+     🔴 It asks the page, which the server stamped at compose time, rather than
+     inspecting the hostname. The hostname test below was the whole of this check
+     until 2026-08-29, and it cost EH a night: the machine moved to its MagicDNS
+     name, `myrock.tail1e9444.ts.net` matched neither loopback nor the Tailscale
+     range, and every lesson rendered with the reader switched off. No error, no
+     console output, nothing to search for, because exiting quietly is exactly
+     what this line is for. A guard that fails silently by design has to be right
+     about the question it is asking, and "what shape is the hostname" was never
+     that question: "am I being served" is, and only the server knows.
+
+     Matching the ORIGIN, not merely the presence of a stamp, is what keeps a
+     saved copy inert: a lesson saved to disk and opened from file://, or one
+     republished anywhere else, carries the stamp of an origin it is no longer
+     being read from and stays quiet. */
+  var onServer = (function () {
+    if (S.servedFrom) return S.servedFrom === location.origin;
+    /* No stamp: a page composed before this existed, which means the six
+       artifacts published up to 2026-08-12 and any copy of them. They keep
+       exactly the behaviour they shipped with. */
+    return /^https?:$/.test(location.protocol) && (
+      /^(127\.0\.0\.1|localhost|\[::1\])$/.test(location.hostname) ||
+      /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(location.hostname)  /* Tailscale */
+    );
+  }());
   if (!onServer) return;
 
   var API  = location.origin;
@@ -2114,7 +2242,14 @@ What it adds when the server is there:
     return fetch(API + path, opts).then(function (r) {
       if (r.status === 401) {
         askForToken();
-        return { ok: false, status: 401, body: { ok: false, error: 'token required' } };
+        /* 🔴 Written as a sentence, and pointing at the prompt that explains it.
+           QA, 2026-08-29: this said "token required", lowercase and
+           unpunctuated, beside a bar that explains the same condition at length,
+           so the two read as if they came from different products. */
+        return { ok: false, status: 401, body: { ok: false,
+          error: 'This device is not paired with the server yet, so it cannot ' +
+                 'load the materials. The prompt at the bottom of the page ' +
+                 'explains how, and reading the lesson works without it.' } };
       }
       if (raw) {
         return r.text().then(function (t) { return { ok: r.ok, status: r.status, text: t }; });
@@ -2140,7 +2275,9 @@ What it adds when the server is there:
       '.joinpath(\'.kcl-study/config.json\').read_text())[\'token\'])"</code><br>' +
       'You only do this once here.</div>' +
       '<input type="password" autocomplete="off" spellcheck="false" placeholder="paste the token">' +
-      '<button type="button">Save</button>';
+      '<button type="button" data-tok="save">Save</button>' +
+      '<button type="button" class="sv-tokclose" data-tok="close" ' +
+        'aria-label="Dismiss, and read without it">Not now</button>';
     document.body.appendChild(tokenBar);
 
     var field = tokenBar.querySelector('input');
@@ -2151,7 +2288,26 @@ What it adds when the server is there:
       token = v;
       window.location.reload();
     };
-    tokenBar.querySelector('button').addEventListener('click', save);
+    /* 🔴 Dismissable, and `tokenBar` goes back to null rather than staying a
+       hidden element. QA, 2026-08-29: unpaired, this was 187px of fixed
+       furniture over the lesson with Save as its only control, Escape did
+       nothing, and it did not scroll away. Reading, selecting, highlighting and
+       the notebook all work WITHOUT a token, so it was blocking the one use that
+       needs nothing from the server.
+
+       Nulling the variable is what makes the prompt come back on its own: the
+       next API call that actually needs the token calls askForToken() again and
+       rebuilds it. So dismissing costs the reader nothing and hides nothing. */
+    var close = function () {
+      if (!tokenBar) return;
+      tokenBar.remove();
+      tokenBar = null;
+      document.removeEventListener('keydown', onKey, true);
+    };
+    function onKey(e) { if (e.key === 'Escape') close(); }
+    tokenBar.querySelector('[data-tok="save"]').addEventListener('click', save);
+    tokenBar.querySelector('[data-tok="close"]').addEventListener('click', close);
+    document.addEventListener('keydown', onKey, true);
     field.addEventListener('keydown', function (e) { if (e.key === 'Enter') save(); });
     field.focus();
   }
@@ -2421,10 +2577,11 @@ What it adds when the server is there:
     '</div>' +
     '<div class="sv-body"></div>' +
     '<div class="sv-ask" hidden>' +
-      '<textarea rows="1" placeholder="Ask about this. Enter sends, Shift+Enter for a new line."></textarea>' +
+      '<textarea rows="2" placeholder="Ask about this."></textarea>' +
       '<button type="button" data-explain title="Just explain it">Explain</button>' +
       '<button type="button" data-send>Ask</button>' +
     '</div>' +
+    '<div class="sv-askhint">Enter sends. Shift+Enter starts a new line.</div>' +
     '<div class="sv-foot">' +
       '<button type="button" data-keep disabled>Keep in this lesson</button>' +
       '<button type="button" data-panel hidden>Move to panel</button>' +
@@ -2941,9 +3098,13 @@ What it adds when the server is there:
       '<button type="button" data-scope="course" aria-pressed="false">Whole course</button>' +
     '</div>' +
     '<div class="sv-ask">' +
-      '<textarea rows="1" placeholder="Ask anything about this lesson. Enter sends, Shift+Enter for a new line."></textarea>' +
+      /* Two rows for typing room; the Shift+Enter hint is the .sv-askhint
+         below, where nothing can clip it. See that rule for why the placeholder
+         was the wrong home for it at any row count. */
+      '<textarea rows="2" placeholder="Ask anything about this lesson."></textarea>' +
       '<button type="button" data-send>Ask</button>' +
-    '</div>';
+    '</div>' +
+    '<div class="sv-askhint">Enter sends. Shift+Enter starts a new line.</div>';
   document.body.appendChild(panel);
 
   /* ---------- the part's own video and slides ----------
@@ -3882,6 +4043,22 @@ What it adds when the server is there:
     top.hidden = bottom.hidden = true;
     wrap.insertBefore(top, wrap.firstChild);
     wrap.appendChild(bottom);
+    /* 🔴 The stamped nav first, because it is the one that works WITHOUT a
+       token. /api/materials serves the same thing but every /api/ path is
+       token-gated, so on an unpaired device this used to leave both strips
+       hidden: the reader could read the lesson they landed on and go nowhere,
+       while the dismiss control invited exactly that by saying "read without
+       it". The server now derives the neighbours at compose time and stamps
+       them, the same way it stamps SERVED_FROM and COURSE_NAME.
+
+       Null on a page composed before this existed, and then the API path below
+       behaves exactly as it did. */
+    var stamped = (S && S.lessonNav) || null;
+    if (stamped) {
+      fillNav(top, stamped);
+      fillNav(bottom, stamped);
+      top.hidden = bottom.hidden = false;
+    }
     loadMaterials().then(function (d) {
       if (!d || d.ok === false || (!d.prev && !d.next)) return;
       fillNav(top, d);
@@ -5842,10 +6019,18 @@ What it adds when the server is there:
      CHAT, not the page: each thread remembers what it was asked across, and
      reopening it restores the buttons. */
   var panelScope = 'lesson';
+  /* 🔴 These lost their "Enter sends, Shift+Enter for a new line." tail on
+     2026-08-29. That sentence now lives in `.sv-askhint` under the box, where
+     it can wrap. QA measured why: in the placeholder it needed 41px inside a
+     20px one-row box, so the half that taught the shortcut was invisible; and
+     making the box two rows fixed the default width while still clipping at the
+     320px minimum panel, because a placeholder cannot wrap past a fixed height.
+     🔴 THIS is the string the composer actually shows, set at runtime per scope.
+     The markup's own placeholder attribute is only what it starts with. */
   var SCOPE_HINT = {
-    lesson: 'Ask anything about this lesson. Enter sends, Shift+Enter for a new line.',
-    topic:  'Ask across every part of this topic. Enter sends, Shift+Enter for a new line.',
-    course: 'Ask across the whole course. Enter sends, Shift+Enter for a new line.'
+    lesson: 'Ask anything about this lesson.',
+    topic:  'Ask across every part of this topic.',
+    course: 'Ask across the whole course.'
   };
   function paintScope() {
     var cur = (openChat && openChat.scope) || panelScope;
@@ -6349,6 +6534,28 @@ What it adds when the server is there:
      rules for why. Tolerates the button not existing yet, because the settings
      fetch that fills the palette and the selection that builds the bar do not
      arrive in a fixed order. */
+  /* Which ink reads on this swatch. 🔴 Not a nicety: two of the palette entries
+     on this machine are colours EH added himself and carry NO dark value, so in
+     dark mode they keep their LIGHT background while the label follows the dark
+     theme. Measured, that is 1.21:1 for "Flag" and 2.22:1 for "Very
+     Interesting" - the same invisible-label bug QA reported at 1.05:1, just on
+     a different entry. Choosing the ink from the background instead fixes every
+     colour, including any the user adds next.
+
+     Threshold 0.25 on relative luminance: every swatch in the palette, light
+     and dark, then lands at 5.96:1 or better against its own label. */
+  function inkOn(hex) {
+    var h = String(hex || '').replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    if (h.length !== 6) return '';
+    var f = function (v) {
+      v = parseInt(v, 16) / 255;
+      return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    };
+    var L = 0.2126 * f(h.slice(0, 2)) + 0.7152 * f(h.slice(2, 4)) + 0.0722 * f(h.slice(4, 6));
+    return L > 0.25 ? '#1b1f1f' : '#f2f6f6';
+  }
+
   function paintPalIcon() {
     var c = colourById(lastColour) || colourById('k');
     if (!c) return;
@@ -6367,7 +6574,20 @@ What it adds when the server is there:
     var c = colourById(lastColour) || colourById('k');
     b.setAttribute('data-c', c.id);
     b.textContent = c.label;
-    b.style.background = c.color;
+    /* Custom properties, not an inline background, so the dark swatch in the
+       palette can win in dark mode. removeProperty clears the inline value a
+       page composed before this change may still be carrying. */
+    b.classList.add('sv-hlbtn');
+    b.style.removeProperty('background');
+    b.style.setProperty('--sv-hlbg', c.color);
+    b.style.setProperty('--sv-hlink', inkOn(c.color));
+    if (c.dark) {
+      b.style.setProperty('--sv-hlbgd', c.dark);
+      b.style.setProperty('--sv-hlinkd', inkOn(c.dark));
+    } else {
+      b.style.removeProperty('--sv-hlbgd');
+      b.style.removeProperty('--sv-hlinkd');
+    }
     b.title = 'Highlight as "' + c.label + '". The palette beside this changes it.';
   }
 
@@ -7457,6 +7677,11 @@ What it adds when the server is there:
 
   var lookBtn = addBarButton('Look up', 'lookup');
   var explBtn = addBarButton('Ask', 'explain');
+  /* These two consume the selected STRING and the lesson context, and neither
+     needs a mark anchor, so they survive into the reduced bar. Nothing else in
+     the bar does; see the .sv-textonly rule in the stylesheet above. */
+  lookBtn.setAttribute('data-textok', '1');
+  explBtn.setAttribute('data-textok', '1');
 
   var rewriteBtn = document.createElement('button');
   rewriteBtn.type = 'button';
@@ -7834,6 +8059,67 @@ What it adds when the server is there:
      panels, their aria-expanded, the notes count and the settings sheet are all
      still owned by whoever owned them before. */
 
+  /* Bulbs and stars for THIS lesson, written to the same keys the hub rows use.
+     Bulbs first, then stars, matching the hub's order. */
+  var RATE_KINDS = [['bulbs', 'bulb', '\uD83D\uDCA1'], ['stars', 'star', '\u2605']];
+
+  function rateHtml() {
+    var st = (S && S.lessonState) || {};
+    var out = '';
+    RATE_KINDS.forEach(function (k) {
+      var kind = k[0], word = k[1], glyph = k[2];
+      var on = Number(st[kind] || 0);
+      var btns = '';
+      for (var n = 1; n <= 5; n++) {
+        btns += '<button type="button" class="sv-rbtn ' + word +
+                (n <= on ? ' on' : '') + '" data-k="' + kind + '" data-n="' + n +
+                '" aria-label="' + n + ' ' + word + (n === 1 ? '' : 's') +
+                '">' + glyph + '</button>';
+      }
+      out += '<span class="sv-rgrp" role="group" aria-label="Rate this lesson: ' +
+             word + '">' + btns + '</span>';
+    });
+    return '<span class="sv-headrate">' + out + '</span>';
+  }
+
+  function paintRate(root, kind, value) {
+    var word = (kind === 'stars') ? 'star' : 'bulb';
+    var all = root.querySelectorAll('.sv-rbtn[data-k="' + kind + '"]');
+    for (var i = 0; i < all.length; i++) {
+      all[i].className = 'sv-rbtn ' + word +
+        (Number(all[i].getAttribute('data-n')) <= value ? ' on' : '');
+    }
+  }
+
+  function wireRate(root) {
+    var box = root.querySelector('.sv-headrate');
+    if (!box) { return; }
+    box.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('.sv-rbtn') : null;
+      if (!b) { return; }
+      var kind = b.getAttribute('data-k');
+      var n = Number(b.getAttribute('data-n'));
+      var was = box.querySelectorAll('.sv-rbtn[data-k="' + kind + '"].on').length;
+      var next = (n === was) ? 0 : n;      /* tapping the current value clears */
+      paintRate(box, kind, next);          /* optimistic: it should feel instant */
+      var patch = { doc: S.docId };
+      patch[kind] = next;
+      api('/api/lessonstate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      }).then(function (r) {
+        if (!r || r.ok === false) { throw new Error((r && r.error) || 'refused'); }
+        if (S.lessonState) { S.lessonState[kind] = next || undefined; }
+      }).catch(function () {
+        /* 🔴 Put it back. An optimistic paint that survives a failed write is a
+           UI that lies about what is stored, and this one writes to the same
+           file the hub reads, so the lie would show up there as an absence. */
+        paintRate(box, kind, was);
+      });
+    });
+  }
+
   (function installHead() {
     if (!document.body) return;
 
@@ -7858,7 +8144,15 @@ What it adds when the server is there:
         '<span class="sv-headcrumbs">' +
           '<a class="sv-headhome" href="/">Courses</a>' +
           '<span class="sv-crumbsep" aria-hidden="true">\u203a</span>' +
-          '<a class="sv-headhome" href="index.html">' + mm[1] + '</a>' +
+          /* 🔴 The course's NAME, not its enrolment code. EH, 2026-08-29:
+             the code is what he found confusing, and "there is definitely more
+             room for it". The name is stamped at compose time (the servedFrom
+             pattern) because only the server knows it; `mm[1]`, the raw URL
+             segment, stays as the fallback for a page composed before this
+             existed, so nothing regresses to blank. */
+          '<a class="sv-headhome sv-crumbname" href="index.html" title="' +
+            esc(S.courseName || mm[1]) + '">' +
+            esc(S.courseName || mm[1]) + '</a>' +
         '</span>';
     }
 
@@ -7867,6 +8161,7 @@ What it adds when the server is there:
     head.innerHTML =
       crumbHtml +
       '<span class="sv-headkey"></span>' +
+      rateHtml() +
       '<nav class="sv-headnav" aria-label="This lesson\'s tools">' +
         '<button type="button" data-head="mat" aria-expanded="false">Materials</button>' +
         '<button type="button" data-head="chat" aria-expanded="false">Chat</button>' +
@@ -7891,6 +8186,7 @@ What it adds when the server is there:
 
     document.body.appendChild(head);
     document.body.appendChild(menu);
+    wireRate(head);
 
     var burger = head.querySelector('.sv-burger');
 
@@ -8062,10 +8358,13 @@ What it adds when the server is there:
      back. The long form is kept as the source of truth on the element, so this
      never has to know what the wording is. */
   (function () {
+    /* 🔴 The two ask-box entries were removed on 2026-08-29 and that is not
+       tidying: their keys can no longer occur. The placeholders no longer carry
+       the keyboard sentence at any width, because it moved to `.sv-askhint`
+       under the box, so this map would have matched nothing and quietly done
+       nothing on a phone. A lookup table whose keys cannot occur is worse than
+       an empty one: it reads as working. */
     var SHORT = {
-      'Ask about this. Enter sends, Shift+Enter for a new line.': 'Ask about this.',
-      'Ask anything about this lesson. Enter sends, Shift+Enter for a new line.':
-        'Ask anything about this lesson.',
       'too vague about the mechanism, and it mentions a lecturer':
         'what to change'
     };
@@ -8088,6 +8387,19 @@ What it adds when the server is there:
     else if (mq.addListener) mq.addListener(paint);
     paint();
   }());
+
+  /* 🔴 The last statement in the layer, and it must stay last. The watchdog the
+     server composes into the page waits for this and shows a visible bar if it
+     never arrives, so it has to mean "everything above ran". Setting it earlier
+     would make it mean "the file started", which is the case the watchdog exists
+     to catch: a page truncated mid-stream renders fully, keeps the old engine,
+     and loses the layer with no error anywhere.
+
+     The watchdog lives in the composed page and NOT in this file, deliberately:
+     inside a published artifact copy the layer is meant to be invisible, and a
+     watchdog shipped in here would fire there and tell a reader their page is
+     broken when it is working exactly as intended. */
+  window.SV_LAYER_READY = true;
 })();
 </script>
 <!-- study-local-layer:end -->

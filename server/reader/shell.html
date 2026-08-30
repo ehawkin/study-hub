@@ -10,6 +10,25 @@
 @@TITLE@@@@BODY@@<!-- ================= highlight layer ================= -->
 
 <style>
+  /* 🔴 The light `--muted` is corrected HERE, in the wrapper, and not in the 67
+     lesson files that each bake a copy of the palette.
+
+     QA measured it, 2026-08-29: `#64777F` on `#F1F4F3` is **4.23:1**, and WCAG AA
+     wants 4.5:1 for text under 18.66px. Every place this token appears is small:
+     the lesson eyebrow at 12px, the hub and settings subtitles at 15.2px.
+     `#5F7178` is the same hue two steps darker and measures **4.61:1** on paper
+     and 4.96:1 on surface. Dark mode was audited and returned zero failures, so
+     it is deliberately untouched.
+
+     Why here rather than in the lessons: a palette baked into course content is
+     presentation smuggled into a data pack, which is the thing EH's architecture
+     rule exists to stop, and editing 67 files would fix only the courses that
+     already exist. This block sits AFTER the lesson's own body in the composed page, so a
+     plain `:root` here beats the lesson's own `:root` on source order, while the
+     lesson's higher-specificity dark rules still win where they should. One line
+     fixes every course, imported packs included. */
+  :root { --muted: #5F7178; }
+
   :root { --hl-key: #C9E4DC; --hl-q: #F3DDBE; --hl-d: #CBDCEA; --hl-d-line: #2F6187; }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) { --hl-key: #22504A; --hl-q: #4B3721; --hl-d: #22384E; --hl-d-line: #7FB0D0; }
@@ -137,6 +156,45 @@
     padding: 9px 17px; border-radius: 999px; box-shadow: 0 6px 20px rgba(0,0,0,.25);
   }
   @media print { .hl-fab, .hl-panel, .hl-bar, .hl-toast { display: none !important; } }
+
+  /* 🔴 The first-generation controls are hidden HERE, in the composed page, and
+     not by the layer that replaced them. EH's ruling, 2026-08-29, after a night
+     of every lesson rendering with the layer switched off: "nothing is probably
+     better". A dead layer must leave a clean page and one clear message, never
+     the old engine standing alone, which is what he actually met: highlighting
+     that gave only a flag and a card, and a notes button bottom right opening a
+     panel that could not be closed.
+
+     🔴 They are HIDDEN, never removed, and that part has not changed: R18 moved
+     these pills into the header and every header button still drives the original
+     control's own handler, so .hl-fab has to stay in the document with its
+     listener, its aria-expanded and its count intact. A programmatic click still
+     reaches a display:none button.
+
+     🔴 SCOPED TO html:not(.sv-head-on), and the scope is the entire correctness
+     of this rule. The first version of it was unconditional and broke highlighting
+     on every lesson of every course for half a day: `.hl-bar` IS the selection
+     toolbar, which the layer EXTENDS rather than replaces (it appends its own
+     .sv-act buttons to it and restyles it, and `.hl-bar[hidden]` is what shows and
+     hides it), and `.hl-panel` is the notes panel the sidebar's Notes tab opens by
+     clicking the hidden fab. Force-hiding them with !important beat the `hidden`
+     attribute the engine drives, so selecting text did nothing at all.
+
+     🔴 The mistake underneath that is worth more than the fix: the set of four was
+     copied from the `@media print` rule directly above. Print hiding answers "what
+     should not appear on paper"; this rule answers "what did the layer replace",
+     and only .hl-fab is in both. A list that happens to sit nearby is not the same
+     list, and the way to tell was to read what the layer does with each one.
+
+     So: when the layer is alive (it sets html.sv-head-on once its header is built)
+     only the fab is hidden, by the rule below, and the bar and the panel are its
+     working parts. When the layer is DEAD the class is never set and all four go,
+     which is EH's ruling honoured with the selection toolbar intact. Deleting the
+     old engine outright is the backlog entry "Finish the R18 migration". */
+  html:not(.sv-head-on) .hl-fab,
+  html:not(.sv-head-on) .hl-panel,
+  html:not(.sv-head-on) .hl-bar,
+  html:not(.sv-head-on) .hl-toast { display: none !important; }
 </style>
 
 <div class="hl-bar" id="hlBar" hidden>
@@ -188,6 +246,97 @@
   'use strict';
 
   var DOC_ID    = '@@DOC_ID@@';
+  /* 🔴 The origin the server composed this page FOR. Empty when nothing was
+     serving. This is what the reader's layer gates on; see window.STUDY below. */
+  var SERVED_FROM = '@@SERVED_FROM@@';
+  /* The course's own name, for the header crumb. Empty on a page composed
+     before this existed, and the layer falls back to the code. */
+  var COURSE_NAME = '@@COURSE_NAME@@';
+  /* 🔴 An UNFILLED token means this page template is newer than the server
+     composing it: the file is picked up from disk without a restart (it is
+     mtime-cached), while the Python that fills the token is only loaded at
+     process start. Between saving this file and restarting, an older server
+     emits the token verbatim.
+
+     Treat that as "not served", never as an origin. Left as-is it is a truthy
+     string that matches no origin, which switches the reader off EVERYWHERE
+     rather than only where it was already off. Met for real on 2026-08-29, on
+     the live server, in the minutes between the two. A composed page must never
+     be able to claim an origin nobody gave it. */
+  if (SERVED_FROM.indexOf('@@') === 0) SERVED_FROM = '';
+
+  /* 🔴 The neighbouring lessons, stamped at compose time so a reader with no
+     token can still move through the module. `/api/materials` serves the same
+     thing but every /api/ path is token-gated, so on an unpaired device both
+     nav strips stayed hidden and "read without it" meant "read this one page".
+
+     Same unfilled-token rule as SERVED_FROM above, and the same reason: an
+     older server emits the token verbatim. Anything that is not parseable JSON
+     becomes null, and the layer then behaves exactly as it did before this
+     existed, asking the API. */
+  var LESSON_NAV = '@@LESSON_NAV@@';
+  try {
+    LESSON_NAV = (LESSON_NAV && LESSON_NAV.indexOf('@@') !== 0)
+      ? JSON.parse(LESSON_NAV) : null;
+  } catch (e) { LESSON_NAV = null; }
+  if (LESSON_NAV && !LESSON_NAV.prev && !LESSON_NAV.next) LESSON_NAV = null;
+
+  /* This lesson's own stars and bulbs, for the header controls. Same unfilled
+     token rule; an older server emits it verbatim and it becomes {}. */
+  var LESSON_STATE = '@@LESSON_STATE@@';
+  try {
+    LESSON_STATE = (LESSON_STATE && LESSON_STATE.indexOf('@@') !== 0)
+      ? JSON.parse(LESSON_STATE) : {};
+  } catch (e) { LESSON_STATE = {}; }
+
+  /* ---- the watchdog: a dead layer says so, out loud ----------------------
+     EH's ruling, 2026-08-29: "nothing is probably better" than a partial
+     fallback. So there is no partial fallback. There is a clean page, and if the
+     reader's layer should have loaded and did not, there is one sentence saying
+     exactly that.
+
+     🔴 It lives HERE, in the composed page, and must never move into
+     local-layer.html. Inside a published artifact copy the layer is meant to be
+     invisible; a watchdog shipped inside it would fire there and tell somebody
+     their perfectly working page is broken.
+
+     🔴 It fires only when this page is being read from the origin it was served
+     for. Off that origin the layer is SUPPOSED to be absent, and a warning would
+     be a lie. */
+  (function () {
+    if (!SERVED_FROM || SERVED_FROM !== location.origin) return;
+    var broke = false;
+    window.addEventListener('error', function () { broke = true; }, true);
+    function complain() {
+      if (window.SV_LAYER_READY || document.getElementById('sv-watchdog')) return;
+      var bar = document.createElement('div');
+      bar.id = 'sv-watchdog';
+      bar.setAttribute('role', 'alert');
+      bar.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483647;' +
+        'padding:10px 14px;font:600 14px/1.4 system-ui,-apple-system,sans-serif;' +
+        'background:#7a2020;color:#fff;text-align:center';
+      bar.textContent = broke
+        ? 'The reader did not finish loading, and something on the page failed. Reload the page.'
+        : 'The reader did not finish loading, so highlighting and the panels are missing. Reload the page.';
+      var host = document.body || document.documentElement;
+      host.appendChild(bar);
+      /* 🔴 Push the page down by exactly the bar's height. A page whose layer
+         died has no header, so nothing has reserved space at the top and a
+         fixed bar would sit on the lesson's first line: the reader would be
+         told what is wrong while being shown less of what they came for. */
+      try {
+        var h = bar.getBoundingClientRect().height;
+        if (h && document.body) {
+          document.body.style.paddingTop =
+            (parseFloat(getComputedStyle(document.body).paddingTop) || 0) + h + 'px';
+        }
+      } catch (e) {}
+    }
+    /* After load, and then once more a beat later: the layer is the last script
+       in the page, so on a slow first paint it can still be running when load
+       fires. Two looks cost nothing and stop a false alarm. */
+    window.addEventListener('load', function () { window.setTimeout(complain, 1200); });
+  }());
   var DOC_TITLE = '@@DOC_TITLE@@';
   var STORE_KEY = '@@STORE_PREFIX@@' + DOC_ID;
   var FENCE     = '```';
@@ -515,8 +664,20 @@
   /* ---------- selection ---------- */
 
   var pending = null;
+  /* 🔴 A selection that anchors to no block, but still has words in it. Diagrams
+     are inline SVG inside <figure class="figbox">, which compose does not stamp
+     as a block, so `segmentsIn` finds nothing there and the bar used to hide by
+     design. EH, 2026-08-29: "selecting text inside a diagram does not pull up
+     our usual highlight and lookup tools."
 
-  function hideBar() { bar.hidden = true; pending = null; }
+     The tools split honestly. Look up and Ask need only the STRING; Highlight,
+     Card, Bookmark and Rewrite all need a block anchor, because a mark is a
+     character range inside a stamped block and SVG cannot host the spans the
+     marking engine paints with. So this carries the words and nothing else, and
+     the bar shows a reduced set. */
+  var loose = null;
+
+  function hideBar() { bar.hidden = true; pending = null; loose = null; }
 
   /* A selection that crosses a list, a table or a card boundary covers several
      blocks. The first version required one, and silently showed no toolbar at
@@ -560,9 +721,24 @@
 
     var segs = segmentsIn(r);
     var total = segs.reduce(function (n, sg) { return n + (sg.e - sg.s); }, 0);
-    if (!segs.length || total < 2) return hideBar();
 
-    pending = segs;
+    if (segs.length && total >= 2) {
+      pending = segs;
+      loose = null;
+      bar.classList.remove('sv-textonly');
+    } else {
+      /* No block anchor. Worth a reduced bar only if there are words and the
+         selection is inside the lesson body: a drag over the header or the
+         panel is not a selection anybody wants tools for. */
+      var host = r.commonAncestorContainer;
+      host = host && (host.nodeType === 1 ? host : host.parentElement);
+      var text = String(sel).replace(/\s+/g, ' ').trim();
+      if (!host || !host.closest || !host.closest('.wrap') ||
+          host.closest('.hl-panel') || text.length < 2) return hideBar();
+      pending = null;
+      loose = { text: text, host: host };
+      bar.classList.add('sv-textonly');
+    }
 
     var rect = r.getBoundingClientRect();
     bar.hidden = false;
@@ -942,6 +1118,21 @@
   window.STUDY = {
     docId:  DOC_ID,
     title:  DOC_TITLE,
+    /* The layer activates only when this page is being read back from the origin
+       it was composed for, which is the honest form of "am I on the server". The
+       layer used to answer that by looking at the hostname, and it cost a night
+       on 2026-08-29 when the machine moved to its MagicDNS name: the name matched
+       neither loopback nor the Tailscale range, so the layer exited cleanly and
+       every lesson rendered with its reader switched off. */
+    servedFrom: SERVED_FROM,
+    courseName: COURSE_NAME,
+    /* 🔴 The neighbouring lessons, so the layer can draw nav without asking a
+       token-gated API. It has to travel THROUGH here: this script is an IIFE,
+       so LESSON_NAV is not a global and the layer cannot see it. Reaching for
+       a bare LESSON_NAV from the layer silently does nothing, which is exactly
+       how the first version of this shipped past its own unit tests. */
+    lessonNav: LESSON_NAV,
+    lessonState: LESSON_STATE,
     vault:  VAULT,
     bar:    bar,
     vaultMd: function () { return buildVaultMd(true); },
@@ -978,6 +1169,21 @@
       return true;
     },
     selection: function () {
+      /* The reduced case first: words, no anchor. `b` and the offsets are null
+         rather than 0, so anything that needs a block fails loudly instead of
+         silently editing the first paragraph on the page. */
+      if ((!pending || !pending.length) && loose) {
+        var lrect = null, lsel = window.getSelection();
+        if (lsel && lsel.rangeCount && !lsel.isCollapsed) {
+          try { lrect = lsel.getRangeAt(0).getBoundingClientRect(); } catch (e2) { lrect = null; }
+        }
+        if (!lrect || (!lrect.width && !lrect.height)) lrect = bar.getBoundingClientRect();
+        var lblock = blockOf(loose.host);
+        return { text: loose.text,
+                 context: lblock ? contextFor(lblock) : (DOC_TITLE || ''),
+                 b: null, s: null, e: null, rect: lrect, segments: [],
+                 textOnly: true };
+      }
       if (!pending || !pending.length) return null;
       var first = pending[0];
       var block = blocks[first.b];

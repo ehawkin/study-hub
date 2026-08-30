@@ -488,8 +488,25 @@ def module_cfg(cfg, module_id):
     out["module"] = module_id
     out["module_name"] = str(facts.get("name") or facts.get("title") or module_id)
     out["module_code"] = str(facts.get("code") or module_id)
-    if facts.get("class_name"):
-        out["class_name"] = str(facts["class_name"])
+    # 🔴 Identity is per COURSE, and a course that does not declare it gets
+    # nothing rather than the machine's. The same rule `store_prefix` already
+    # follows below, for the same reason, and `load_config` says so in words:
+    # "a courses root supplies all three per module instead". It supplied two.
+    #
+    # The bug that fixed: a config written before courses were plural carries
+    # machine-global `class_name` and `project_link` describing ONE course, and
+    # `dict(cfg)` above hands them to every other course. That is how a
+    # mindfulness note was filed under Affective Disorders, in its filename and
+    # in `project: "[[...]]"`. b058c03 fixed the fresh-install half of this
+    # story; this is the half that was live on an upgraded machine.
+    #
+    # The legacy single-module install keeps the configured globals, so nothing
+    # of an existing user's moves.
+    for field in ("class_name", "project_link"):
+        if facts.get(field):
+            out[field] = str(facts[field])
+        elif cfg.get("courses_dir") is not None:
+            out[field] = ""
     if facts.get("store_prefix"):
         out["store_prefix"] = str(facts["store_prefix"])
     elif cfg.get("courses_dir") is not None:
@@ -506,7 +523,7 @@ def module_url(cfg, module_id):
     return "/m/%s/" % module_id
 
 
-def create_module(root, module_id, name=""):
+def create_module(root, module_id, name="", class_name=""):
     """Make a course folder and its identity file. Returns the folder.
 
     🔴 One implementation, because there were about to be two. `lesson_packs.py`
@@ -535,6 +552,12 @@ def create_module(root, module_id, name=""):
         # id they both use. Derived from the id, so it cannot collide.
         "store_prefix": "kcl-study:%s:" % module_id,
     }
+    # Optional, and empty is correct rather than missing: the vault namers fall
+    # back to `module_name`, and an absent class is how every course that is not
+    # the original one looks. Written only when given, so settings.json does not
+    # carry a field nobody set.
+    if str(class_name or "").strip():
+        facts["class_name"] = str(class_name).strip()
     (folder / "settings.json").write_text(
         json.dumps({"module": facts}, indent=2) + "\n", encoding="utf-8")
     return folder
@@ -818,28 +841,50 @@ def vault_filename(cls, week, topic_no, topic_title):
     """Courses/KCL <Class> W<nn>T<n> - <Topic title>.md, per the vault Conventions.
 
     Built from validated fields only. A request cannot name its own file.
+
+    \U0001f534 A course with no `class_name` is the normal case, not the odd one: only
+    the original module carries one, and `create_module` does not write it, so
+    every course a new user makes arrives without it. Interpolating an empty
+    class used to leave "KCL  W03T1 - X.md" with a double space, because this
+    function was written before courses were plural and never revisited when
+    `vault_reading_filename` learned the answer on 2026-08-22. The two name
+    files in the same vault by the same convention, so they follow the same
+    three rules: branch rather than interpolate an empty class, collapse
+    whitespace, cap the length.
     """
-    stem = "KCL %s W%sT%s - %s" % (cls, str(week).zfill(2), topic_no, topic_title)
+    cls = str(cls or "").strip()
+    wt = "W%sT%s" % (str(week).zfill(2), topic_no)
+    stem = ("KCL %s %s - %s" % (cls, wt, topic_title) if cls
+            else "KCL %s - %s" % (wt, topic_title))
     stem = UNSAFE_FILENAME.sub("", stem).strip().rstrip(".")
+    stem = re.sub(r"\s+", " ", stem)
     if not stem:
         raise ValueError("empty filename after sanitising")
-    return stem + ".md"
+    return stem[:120] + ".md"
 
 
 def new_note_header(cfg, topic_title):
     """Minimal correct frontmatter. Nothing invented: categories, project and
     tags only, per the Vault Writing Contract. No week: or part: field, because
     the zero-padded filename already sorts and Conventions declined to add one."""
-    return "\n".join([
+    lines = [
         "---",
         'categories: "[[Course Notes]]"',
-        'project: "[[%s]]"' % cfg["project_link"],
+    ]
+    # \U0001f534 Guarded for the same reason `new_reading_header` guards it: a
+    # courses-root install blanks `project_link`, and interpolating that
+    # unconditionally wrote `project: "[[]]"` into the frontmatter, which
+    # Obsidian shows as a broken link on every topic note a new user exports.
+    if cfg.get("project_link"):
+        lines.append('project: "[[%s]]"' % cfg["project_link"])
+    lines += [
         "tags: [kcl, psychology]",
         "---",
         "",
         "## Topic - %s" % topic_title,
         "",
-    ])
+    ]
+    return "\n".join(lines)
 
 
 def vault_reading_filename(cls, title):
@@ -1120,7 +1165,10 @@ def write_vault(cfg, payload):
             "the vault is not at %s, so nothing was written. Fix vault_courses "
             "in ~/.kcl-study/config.json." % courses.parent)
 
-    name = vault_filename(cfg["class_name"], week, topic_no, topic_title)
+    # The same fallback chain `vault_reading_filename` is called with above, so
+    # a course names its topic notes and its reading notes alike.
+    name = vault_filename(cfg.get("class_name") or cfg.get("module_name") or "",
+                          week, topic_no, topic_title)
     target = (courses / name)
 
     courses.mkdir(parents=True, exist_ok=True)
@@ -2355,6 +2403,67 @@ def read_visits(cfg):
             if DOC_ID_RE.match(k or "") and isinstance(v, dict)}
 
 
+def unit_ids(doc_id):
+    """The week and topic a part belongs to, as ids in the same store.
+
+    `W2-T3-P1` is a part of topic `W2-T3` in week `W2`. Derived from the DOC ID
+    rather than from the metadata's `week`/`topicNo`, which are display values
+    and disagree in shape: a doc is `W2` while its meta week is `"02"`, and
+    building `W%s` from the latter would key a week nothing else can find.
+
+    Returns (week_id, topic_id), either of which may be None for a doc id that
+    does not have that shape. Nothing is invented: a course whose ids are not
+    W/T/P simply gets no week or topic ratings, rather than ratings filed under
+    a guess."""
+    parts = str(doc_id or "").split("-")
+    if len(parts) < 2:
+        return None, None
+    week = parts[0]
+    topic = "-".join(parts[:2])
+    if not DOC_ID_RE.match(week) or not DOC_ID_RE.match(topic):
+        return None, None
+    return week, topic
+
+
+# 🔴 Two scales, deliberately the same shape. EH, 2026-08-29: stars for how
+# good it was, bulbs for how interesting, "one bulb or two bulbs, all the way
+# to five bulbs". Tapping the current value clears it, exactly as stars do.
+RATINGS = (("stars", "&#9733;", "star"),
+           ("bulbs", "&#128161;", "bulb"))
+
+
+def rating_html(kind, glyph, word, value, label):
+    """One row of five buttons. The same markup at part, topic and week level,
+    so one click handler and one paint function serve all three."""
+    btns = "".join(
+        '<button type="button" class="hrate h%s%s" data-k="%s" data-n="%d" '
+        'aria-label="%d %s%s">%s</button>'
+        % (word, " on" if n <= value else "", kind, n, n, word,
+           "" if n == 1 else "s", glyph)
+        for n in range(1, 6))
+    return ('<span class="hrates" role="group" aria-label="%s">%s</span>'
+            % (label, btns))
+
+
+def ratings_html(state, label_for):
+    """Both scales for one unit, in EH's order: bulbs first, then stars."""
+    return "".join(
+        rating_html(kind, glyph, word, int((state or {}).get(kind) or 0),
+                    label_for(word))
+        for kind, glyph, word in reversed(RATINGS))
+
+
+# 🔴 The same guard `visits.json` has had all along, and lesson-state never got.
+# `write_lesson_state` is read-modify-write on one file, the server is a
+# ThreadingHTTPServer, and two ratings clicked in quick succession are two
+# concurrent requests: both read the same state and the second write erases the
+# first. Found on 2026-08-29 by clicking four ratings in a row and finding one
+# in the file. It was always reachable; the bulbs made it easy, because marking
+# a lesson good AND interesting is two clicks on the same box, which is the
+# thing EH asked for.
+LESSON_STATE_LOCK = threading.Lock()
+
+
 def lesson_state_path(cfg):
     return Path(cfg["notes_dir"]) / "lesson-state.json"
 
@@ -2378,9 +2487,16 @@ def read_lesson_state(cfg):
             row["read"] = True
         if v.get("watched") is True:
             row["watched"] = True
-        s = v.get("stars")
-        if isinstance(s, int) and 1 <= s <= 5:
-            row["stars"] = s
+        # 🔴 `stars` and `bulbs` are the same shape and are read the same way.
+        # EH, 2026-08-29: "one bulb or two bulbs, all the way to five bulbs",
+        # and the two mean different things: how good it was, and how
+        # interesting. Keys here are UNIT ids, not only lesson ids: `W3` is a
+        # week, `W3-T1` a topic, `W3-T1-P2` a part. One store, one merge path,
+        # one write path for all three, which is why DOC_ID_RE already fits.
+        for key in ("stars", "bulbs"):
+            n = v.get(key)
+            if isinstance(n, int) and 1 <= n <= 5:
+                row[key] = n
         if row:
             out[k] = row
     return out
@@ -2391,30 +2507,36 @@ def write_lesson_state(cfg, doc, payload):
     False or zero removes the key, so the file only ever holds positives."""
     if not DOC_ID_RE.match(doc or ""):
         raise ValueError("bad doc id")
-    docs = read_lesson_state(cfg)
-    row = dict(docs.get(doc) or {})
-    for key in ("read", "watched"):
-        if key in payload:
-            if not isinstance(payload[key], bool):
-                raise ValueError("%s must be true or false" % key)
-            if payload[key]:
-                row[key] = True
+    with LESSON_STATE_LOCK:
+        docs = read_lesson_state(cfg)
+        row = dict(docs.get(doc) or {})
+        for key in ("read", "watched"):
+            if key in payload:
+                if not isinstance(payload[key], bool):
+                    raise ValueError("%s must be true or false" % key)
+                if payload[key]:
+                    row[key] = True
+                else:
+                    row.pop(key, None)
+        for key in ("stars", "bulbs"):
+            if key not in payload:
+                continue
+            n = payload[key]
+            # 🔴 `True` is an int in Python and would sail through as 1. The read
+            # and watched flags above are booleans on the same object, so this is a
+            # realistic mistake for a caller to make, not a theoretical one.
+            if isinstance(n, bool) or not (isinstance(n, int) and 0 <= n <= 5):
+                raise ValueError("%s must be 0 to 5" % key)
+            if n:
+                row[key] = n
             else:
                 row.pop(key, None)
-    if "stars" in payload:
-        s = payload["stars"]
-        if not (isinstance(s, int) and 0 <= s <= 5):
-            raise ValueError("stars must be 0 to 5")
-        if s:
-            row["stars"] = s
+        if row:
+            docs[doc] = row
         else:
-            row.pop("stars", None)
-    if row:
-        docs[doc] = row
-    else:
-        docs.pop(doc, None)
-    snapshot_sidecars(cfg)
-    write_json_sidecar(lesson_state_path(cfg), {"docs": docs})
+            docs.pop(doc, None)
+        snapshot_sidecars(cfg)
+        write_json_sidecar(lesson_state_path(cfg), {"docs": docs})
     return {"ok": True, "doc": doc, "state": row}
 
 
@@ -2997,6 +3119,66 @@ def access_for(link):
                             % host)
 
 
+def lesson_order(mcfg, metas=None):
+    """This module's lesson doc ids, in the order a reader meets them.
+
+    🔴 ONE answer, used by the hub and by the reader's prev/next both. They were
+    two answers until 2026-08-29: the hub derived order from the lessons while
+    navigation read a `prev`/`next` chain baked into `materials.json`, so a course
+    built by a different path had a hub and no navigation at all. Two halves of
+    one question, edited separately, disagreeing in a way only a reader could see.
+
+    `materials.json`'s `order` first, filtered to lessons that actually exist,
+    then anything it does not mention, sorted: a lesson missing from the order is
+    still a lesson, and one nobody can reach is worse than one out of place."""
+    if metas is None:
+        metas = lesson_meta_index(mcfg)
+    order = []
+    try:
+        mats = json.loads((mcfg["notes_dir"] / "materials.json")
+                          .read_text(encoding="utf-8"))
+        order = [d for d in mats.get("order", []) if d in metas]
+    except (OSError, ValueError):
+        pass
+    order += [d for d in sorted(metas) if d not in order]
+    return order
+
+
+def derived_neighbours(mcfg, doc_id):
+    """{"prev": {...}, "next": {...}} for this lesson, from the module's order.
+
+    🔴 EH's architecture rule, 2026-08-29: "The courses themselves should just be
+    packs of information, and all of the navigation, the actual site, everything
+    should be a wrapper that those are fed into." So navigation is the reader's
+    job for every course, imported packs included, and a chain baked into a
+    course's own data is ignored ENTIRELY rather than used as a fallback. Measured
+    before that was ruled: of this repo's two courses, one has a partial chain
+    with zero conflicts against natural order and the other has none at all, so
+    nothing observable changes and no course can disagree.
+
+    A course needing a genuinely non-natural order becomes a settings-level fact,
+    designed when such a course appears, rather than data smuggled into a pack."""
+    metas = lesson_meta_index(mcfg)
+    order = lesson_order(mcfg, metas)
+    try:
+        at = order.index(doc_id)
+    except ValueError:
+        return {}
+    out = {}
+    for rel, idx in (("prev", at - 1), ("next", at + 1)):
+        if idx < 0 or idx >= len(order):
+            continue
+        doc = order[idx]
+        meta = metas.get(doc) or {}
+        href = str(meta.get("file") or "")
+        if not href:
+            continue
+        out[rel] = {"doc": doc,
+                    "title": str(meta.get("title") or doc),
+                    "href": href}
+    return out
+
+
 # --------------------------------------------------------------------------
 # Where a course's slides and transcripts come from
 # --------------------------------------------------------------------------
@@ -3118,6 +3300,13 @@ def read_materials(cfg, doc_id):
         return {"ok": False, "error": "no materials recorded for %s" % doc_id}
     out = {"ok": True, "doc": doc_id}
     out.update(entry)
+    # 🔴 Navigation is DERIVED, and the course's own chain is dropped rather than
+    # used as a fallback. EH's ruling, 2026-08-29. Popped BEFORE the derivation is
+    # merged so a course carrying a stale or partial chain cannot leak half of it
+    # through: what the reader gets is the module's order or nothing.
+    out.pop("prev", None)
+    out.pop("next", None)
+    out.update(derived_neighbours(cfg, doc_id))
     # R20: the transcript can be shown in the pane rather than only linked out of
     # it, and Drive previews the same way it previews the deck. Derived here at
     # read time rather than in build_materials.py so no rebuild is needed and
@@ -4338,7 +4527,7 @@ HOME_PAGE = """<!-- study-home -->
 %(icons)s<title>%(tab)s</title>
 <style>
   :root {
-    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#64777F;
+    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#5F7178;
     --rule:#D8E0DE; --accent:#1C6D61; --accent-wash:#DDEBE7;
     --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
     --text:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -4778,7 +4967,7 @@ NOTEBOOK_PAGE = """<!-- study-notebook -->
 %(icons)s<title>%(title)s</title>
 <style>
   :root {
-    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#64777F;
+    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#5F7178;
     --rule:#D8E0DE; --accent:#1C6D61; --accent-wash:#DDEBE7; --broken:#A25E14;
     --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
     --text:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -5053,7 +5242,7 @@ WIZARD_PAGE = """<!-- study-wizard -->
 %(icons)s<title>Set up %(course)s</title>
 <style>
   :root {
-    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#64777F;
+    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#5F7178;
     --rule:#D8E0DE; --accent:#1C6D61; --accent-wash:#DDEBE7; --broken:#A25E14;
     --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
     --text:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -5954,11 +6143,33 @@ HUB_TREE_CSS = """<style>
            border-radius: 999px; padding: 3px 9px; cursor: pointer; }
   .hflag[aria-pressed="true"] { color: var(--accent, #1C6D61);
       border-color: var(--accent, #1C6D61); background: var(--accent-wash, transparent); }
-  .hstars { display: inline-flex; margin-left: 2px; }
-  .hstar { font-size: 15px; line-height: 1; padding: 2px 1px; cursor: pointer;
+  /* Two scales, one shape. On a PART they stack, because Read and Watched
+     already take the width; on a topic or a week they sit side by side, where
+     EH pointed out there is more room and no flags competing for it. */
+  .hrateset { display: flex; flex-direction: column; align-items: flex-end;
+              gap: 1px; margin-left: 2px; }
+  .hrateset.side { flex-direction: row; align-items: center; gap: 8px;
+                   margin-left: 10px; vertical-align: middle; }
+  .hrates { display: inline-flex; }
+  .hrate { font-size: 15px; line-height: 1; padding: 1px 1px; cursor: pointer;
            background: none; border: 0; color: var(--rule, #8884); }
+  .hrate:hover { transform: scale(1.15); }
   .hstar.on { color: var(--accent, #1C6D61); }
-  .hstar:hover { transform: scale(1.15); }
+  /* 🔴 A bulb is an emoji and carries its own colour, so `color` cannot dim it
+     the way it dims a star. Greyed and faded is the off state, full colour the
+     on one, which reads at a glance without inventing a second glyph. */
+  .hbulb { filter: grayscale(1); opacity: .4; font-size: 13px; }
+  .hbulb.on { filter: none; opacity: 1; }
+  /* The headings are uppercase small caps; the controls must not inherit that. */
+  .hth .hrateset, .hwh .hrateset { text-transform: none; letter-spacing: normal; }
+  /* Label left, controls right, on ONE line at both levels. Flex rather than a
+     float so the topic heading matches the week heading instead of wrapping its
+     controls onto a second line. `gap` keeps them apart when the title is long,
+     and wrapping is still allowed so a very long topic name does not squash
+     them. */
+  .hth, .hwh { display: flex; align-items: center; justify-content: space-between;
+               gap: 12px; flex-wrap: wrap; }
+  .hth .hrateset.side, .hwh .hrateset.side { margin-left: auto; }
 
   .htree[data-view="cards"] .htopic { display: grid; gap: 8px;
       grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
@@ -6040,33 +6251,47 @@ HUB_TREE_JS = """<script>
       if (bar) { bar.style.width = (window.HUBTOTAL ? Math.round(100 * count / window.HUBTOTAL) : 0) + '%'; }
     });
   }
-  function paintStars(row, stars) {
-    var all = row.querySelectorAll('.hstar');
+  /* One paint for both scales at all three levels. `set` is the .hrateset for
+     one unit, so a week's bulbs cannot repaint a part's. */
+  function paintRates(set, kind, value) {
+    var word = (kind === 'stars') ? 'hstar' : 'hbulb';
+    var all = set.querySelectorAll('.hrate[data-k="' + kind + '"]');
     for (var i = 0; i < all.length; i++) {
-      all[i].className = 'hstar' + (Number(all[i].getAttribute('data-n')) <= stars ? ' on' : '');
+      all[i].className = 'hrate ' + word +
+        (Number(all[i].getAttribute('data-n')) <= value ? ' on' : '');
     }
   }
   tree.addEventListener('click', function (e) {
     var flag = e.target.closest ? e.target.closest('.hflag') : null;
-    var star = e.target.closest ? e.target.closest('.hstar') : null;
-    if (!flag && !star) { return; }
-    var row = e.target.closest('.hrow');
-    var doc = row.getAttribute('data-doc');
+    var rate = e.target.closest ? e.target.closest('.hrate') : null;
+    if (!flag && !rate) { return; }
     if (flag) {
+      var row = e.target.closest('.hrow');
       var k = flag.getAttribute('data-k');
       var want = flag.getAttribute('aria-pressed') !== 'true';
       var patch = {};
       patch[k] = want;
-      post(doc, patch, function () {
+      post(row.getAttribute('data-doc'), patch, function () {
         flag.setAttribute('aria-pressed', String(want));
         recount();
       });
-    } else {
-      var n = Number(star.getAttribute('data-n'));
-      var cur = row.querySelectorAll('.hstar.on').length;
-      var next = (n === cur) ? 0 : n;
-      post(doc, { stars: next }, function () { paintStars(row, next); });
+      return;
     }
+    /* 🔴 The nearest [data-unit], not the nearest .hrow. A part is a row, but a
+       topic and a week are headings with no row of their own, and walking to
+       .hrow from a week's bulbs would either miss or, worse, find the first
+       lesson underneath and rate that instead. */
+    var set = rate.closest('[data-unit]');
+    if (!set) { return; }
+    var kind = rate.getAttribute('data-k');
+    var n = Number(rate.getAttribute('data-n'));
+    var cur = set.querySelectorAll('.hrate[data-k="' + kind + '"].on').length;
+    var next = (n === cur) ? 0 : n;       /* tapping the current value clears */
+    var patch = {};
+    patch[kind] = next;
+    post(set.getAttribute('data-unit'), patch, function () {
+      paintRates(set, kind, next);
+    });
   });
 
   /* ---- one-time migration from the retired hand-written hub ----
@@ -6117,7 +6342,7 @@ HUB_TREE_JS = """<script>
 
 READINGS_CONTENT_CSS = """
   :root {
-    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#64777F;
+    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#5F7178;
     --rule:#D8E0DE; --rule-soft:#E6ECEA; --regulated:#1C6D61; --reg-wash:#DDEBE7;
     --broken:#A25E14;
     --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
@@ -6337,7 +6562,7 @@ READINGS_PAGE = """<!-- study-readings -->
 %(icons)s<title>%(tab)s</title>
 <style>
   :root {
-    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#64777F;
+    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#5F7178;
     --rule:#D8E0DE; --accent:#1C6D61; --accent-wash:#DDEBE7; --broken:#A25E14;
     --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
     --text:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -6639,7 +6864,7 @@ HELP_PAGE = """<!-- study-help -->
 %(icons)s<title>How to get your lectures in</title>
 <style>
   :root {
-    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#64777F;
+    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#5F7178;
     --rule:#D8E0DE; --accent:#1C6D61; --accent-wash:#DDEBE7; --broken:#A25E14;
     --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
     --text:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -7012,7 +7237,7 @@ IMPORT_BLOCK = """
   .sv-add > h2 { font-family:var(--display,Georgia,serif); font-size:1.05rem;
                  font-weight:600; margin:0 0 10px; color:var(--ink,#1A2830); }
   .sv-add h3 { font-size:.76rem; font-weight:700; letter-spacing:.08em;
-               text-transform:uppercase; color:var(--muted,#64777F);
+               text-transform:uppercase; color:var(--muted,#5F7178);
                margin:22px 0 8px; }
   .sv-add h3:first-of-type { margin-top:6px; }
   .sv-add p { margin:0 0 12px; color:var(--ink-soft,#3E535C); font-size:.9rem;
@@ -7021,7 +7246,7 @@ IMPORT_BLOCK = """
   .sv-add code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.85em;
                  background:var(--accent-wash,var(--reg-wash,#DDEBE7)); padding:1px 5px;
                  border-radius:4px; }
-  .sv-add .foot { color:var(--muted,#64777F); font-size:.82rem; }
+  .sv-add .foot { color:var(--muted,#5F7178); font-size:.82rem; }
   .sv-drop { display:flex; gap:12px; align-items:center; flex-wrap:wrap;
              border:1px dashed var(--rule,#D8E0DE); border-radius:10px; padding:14px;
              background:var(--paper,#F1F4F3); transition:border-color .12s, background .12s; }
@@ -7029,7 +7254,7 @@ IMPORT_BLOCK = """
                   background:var(--accent-wash,var(--reg-wash,#DDEBE7)); }
   .sv-drop button { font:inherit; padding:10px 16px; border:0; border-radius:9px;
                     background:var(--accent,var(--regulated,#1C6D61)); color:#fff; cursor:pointer; }
-  .sv-drop .or { color:var(--muted,#64777F); font-size:.85rem; }
+  .sv-drop .or { color:var(--muted,#5F7178); font-size:.85rem; }
   .sv-says { margin:10px 0 0; font-size:.85rem; color:var(--ink-soft,#3E535C);
              min-height:1.2em; }
   .sv-says.bad { color:var(--broken,#A25E14); }
@@ -7039,7 +7264,7 @@ IMPORT_BLOCK = """
   .sv-routes { margin:0 0 12px; padding-left:20px; color:var(--ink-soft,#3E535C);
                font-size:.9rem; line-height:1.6; max-width:62ch; }
   .sv-routes li { margin:0 0 7px; }
-  .sv-foot { color:var(--muted,#64777F); font-size:.85rem; }
+  .sv-foot { color:var(--muted,#5F7178); font-size:.85rem; }
   .sv-go { margin:16px 0 0; }
   .sv-btn { display:inline-block; padding:11px 18px; border-radius:9px;
             background:var(--accent,var(--regulated,#1C6D61)); color:#fff;
@@ -7223,7 +7448,7 @@ SETTINGS_PAGE = """<!-- study-settings -->
 %(icons)s<title>Settings</title>
 <style>
   :root {
-    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#64777F;
+    --paper:#F1F4F3; --surface:#FBFCFC; --ink:#1A2830; --ink-soft:#3E535C; --muted:#5F7178;
     --rule:#D8E0DE; --accent:#1C6D61; --accent-wash:#DDEBE7; --broken:#A25E14;
     --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
     --text:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
@@ -7629,15 +7854,42 @@ def modules_summary(cfg):
             "server": "http://%s:%s/" % (cfg["bind_ip"], cfg["port"])}
 
 
-def compose_lesson(cfg, text, name="<lesson>"):
+def compose_lesson(cfg, text, name="<lesson>", served_from=""):
+    """See render(). The course NAME is taken from the cfg the module resolved,
+    so the header can print "Mood and Neuroscience" where it used to print the
+    enrolment code EH found confusing."""
+    """The page a browser gets. `served_from` is the origin it is being composed
+    FOR, which is what tells the reader's layer it is on a server; see render().
+    It defaults to empty because the verifier composes pages only to parse them,
+    and a page nobody is serving should not claim to be served."""
     meta, body, title = split_lessons.read_content(text, name)
+    # 🔴 The neighbours, derived here and stamped into the page, because
+    # `/api/materials` is token-gated and an unpaired reader could otherwise
+    # read the lesson it landed on and go nowhere. Same source of truth as the
+    # API and the hub: `derived_neighbours` over `lesson_order`, never a chain
+    # baked into the pack.
+    #
+    # Never fatal. The verifier composes pages with a cfg that resolves no
+    # module, and a page that cannot work out its neighbours should still
+    # render; the layer falls back to asking the API exactly as before.
+    nav = None
+    state = None
+    try:
+        doc_id = str(meta.get("doc") or "")
+        nav = derived_neighbours(cfg, doc_id) or None
+        state = read_lesson_state(cfg).get(doc_id) or None
+    except Exception:
+        pass
     return split_lessons.render(
         read_reader_part(SHELL_PATH),
         read_reader_part(LAYER_PATH).rstrip("\n"),
         meta, body, title=title,
         cls=str(cfg.get("class_name") or ""),
         store_prefix=str(cfg.get("store_prefix")
-                         or split_lessons.DEFAULT_STORE_PREFIX))
+                         or split_lessons.DEFAULT_STORE_PREFIX),
+        served_from=served_from,
+        course_name=str(cfg.get("module_name") or ""),
+        nav=nav, state=state)
 
 
 # --------------------------------------------------------------------------
@@ -7761,6 +8013,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _text(self, text, status=200, ctype="text/plain; charset=utf-8"):
+        if isinstance(text, str) and ctype.startswith("text/html"):
+            text = self._stamp_page(text)
         body = text.encode("utf-8") if isinstance(text, str) else text
         self.send_response(status)
         self.send_header("Content-Type", ctype)
@@ -7791,6 +8045,54 @@ class Handler(BaseHTTPRequestHandler):
         if origin and origin not in {"http://" + h for h in allowed}:
             return False
         return True
+
+    def _stamp_page(self, html):
+        """Every HTML page this server sends says which origin it was composed for.
+
+        🔴 EH's requirement, 2026-08-29: the stamp rides EVERY composed page type,
+        not just lessons. Done at the ONE point every page leaves through rather
+        than in each page builder, which is the whole reason it is worth having: a
+        page added next year cannot forget it. The bug this closes happened
+        because two halves of one mechanism were edited separately and nobody
+        owned the join.
+
+        Lessons already carry the stamp from `render()`, so they are left alone.
+        Nothing on the other pages reads it today; it is an invariant to be able
+        to check, and `_page_origin` is the single answer both paths give."""
+        if "var SERVED_FROM" in html:
+            return html
+        origin = self._page_origin()
+        if not origin:
+            return html
+        tag = "<script>var SERVED_FROM = %s;</script>\n" % json.dumps(origin)
+        # 🔴 These pages are FRAGMENTS: no <html>, no <head>, just a marker
+        # comment and a <meta>, with the browser implying the rest. An earlier
+        # version of this anchored on "<head" and silently stamped nothing,
+        # which is the same shape of mistake as the bug it is here to prevent:
+        # a guard that looks for something that was never there. So it goes
+        # after the marker comment when there is one, and at the very top when
+        # there is not.
+        if html.startswith("<!--"):
+            shut = html.find("-->")
+            if shut >= 0:
+                cut = shut + 3
+                if html[cut:cut + 1] == "\n":
+                    cut += 1
+                return html[:cut] + tag + html[cut:]
+        return tag + html
+
+    def _page_origin(self):
+        """The origin this request came in on, which is the one the browser will
+        read the page back from.
+
+        🔴 Taken from the request's own Host rather than from `bind_ip`, and that
+        is the entire point: one bound address answers to several names (the IP,
+        the MagicDNS name, loopback), and a page composed for the wrong one would
+        switch its own reader off. `_host_ok` has already refused anything not in
+        the allow-list by the time this is called, so the header is trusted here
+        because it was checked there."""
+        host = (self.headers.get("Host") or "").strip()
+        return ("http://" + host) if host else ""
 
     def _auth_ok(self):
         """On loopback, being on the machine is the credential. On the tailnet,
@@ -8250,7 +8552,8 @@ class Handler(BaseHTTPRequestHandler):
                         "this install holds one course and has no courses "
                         "folder to add another to")
                 folder = create_module(root, str(payload.get("id") or "").strip(),
-                                       str(payload.get("name") or "").strip())
+                                       str(payload.get("name") or "").strip(),
+                                       str(payload.get("class_name") or "").strip())
                 _MODULE_CACHE.clear()      # the listing is cached by mtime
                 mid = folder.name
                 log(self.cfg, "course created %s" % mid)
@@ -9033,18 +9336,17 @@ class Handler(BaseHTTPRequestHandler):
         seen = read_visits(mcfg)
         lstate = read_lesson_state(mcfg)
 
-        order = []
+        # 🔴 The same function the reader's prev/next uses, so the hub and the
+        # navigation cannot disagree about what follows what. They did until
+        # 2026-08-29, and only a reader could see it.
+        order = lesson_order(mcfg, metas)
         mats_docs = {}
         try:
             mats = json.loads((mcfg["notes_dir"] / "materials.json")
                               .read_text(encoding="utf-8"))
-            order = [d for d in mats.get("order", []) if d in metas]
             mats_docs = mats.get("docs", {}) or {}
         except (OSError, ValueError):
             pass
-        # Anything the order does not mention still gets listed, because a
-        # lesson missing from the hub is a lesson nobody opens.
-        order += [d for d in sorted(metas) if d not in order]
 
         # Resume and progress come from the same visits file the reader writes.
         opened = [d for d in order if (seen.get(d) or {}).get("last")]
@@ -9074,7 +9376,18 @@ class Handler(BaseHTTPRequestHandler):
             whead = ("Week %s" % esc(wk)) if wk else "Lessons"
             if wktitle:
                 whead += ' <span class="hwt">&middot; %s</span>' % esc(wktitle)
-            rows.append('<section class="hweek"><h2 class="hwh">%s</h2>' % whead)
+            # The week's own unit id, from the first lesson in it. EH asked for
+            # bulbs and stars on topics and weeks too, "next to each other
+            # because there's more room there".
+            wk_id = unit_ids(docs[0])[0] if docs else None
+            wrate = ""
+            if wk_id:
+                wrate = ('<span class="hrateset side" data-unit="%s">%s</span>'
+                         % (esc(wk_id, quote=True),
+                            ratings_html(lstate.get(wk_id),
+                                         lambda w: "Rate this week: %s" % w)))
+            rows.append('<section class="hweek"><h2 class="hwh">%s%s</h2>'
+                        % (whead, wrate))
             last_topic = None
             open_topic = False
             for doc in docs:
@@ -9089,8 +9402,19 @@ class Handler(BaseHTTPRequestHandler):
                     thead = esc(tp[1]) if tp[1] else ""
                     if tp[0]:
                         thead = ("Topic %s" % esc(tp[0])) + (" &middot; " + thead if thead else "")
+                    tp_id = unit_ids(doc)[1]
+                    trate = ""
+                    if tp_id:
+                        trate = ('<span class="hrateset side" data-unit="%s">%s</span>'
+                                 % (esc(tp_id, quote=True),
+                                    ratings_html(lstate.get(tp_id),
+                                                 lambda w: "Rate this topic: %s" % w)))
+                    # A topic with no heading still gets its controls, or a
+                    # course whose topics are unnamed could rate weeks and parts
+                    # but not the level between them.
                     rows.append('<div class="htopic">'
-                                + ('<h3 class="hth">%s</h3>' % thead if thead else ""))
+                                + ('<h3 class="hth">%s%s</h3>' % (thead, trate)
+                                   if (thead or trate) else ""))
                 title = show_title(m, doc)
                 bits = []
                 if m.get("part"):
@@ -9101,12 +9425,14 @@ class Handler(BaseHTTPRequestHandler):
                 was = (seen.get(doc) or {}).get("last")
                 bits.append("opened" if was else "not opened yet")
                 st = lstate.get(doc) or {}
-                stars = st.get("stars") or 0
-                starbtns = "".join(
-                    '<button type="button" class="hstar%s" data-n="%d" '
-                    'aria-label="%d star%s">&#9733;</button>'
-                    % (" on" if n <= stars else "", n, n, "" if n == 1 else "s")
-                    for n in range(1, 6))
+                # 🔴 Two rows here, not side by side: EH asked for "two rows,
+                # one of light bulbs and then one of stars" on the part boxes,
+                # where the Read and Watched buttons already take the width.
+                # Topics and weeks get them side by side for the same reason
+                # in reverse.
+                starbtns = ('<span class="hrateset" data-unit="%s">%s</span>'
+                            % (esc(doc, quote=True),
+                               ratings_html(st, lambda w: "Rate this lesson: %s" % w)))
                 rows.append(
                     '<div class="hrow%s" data-doc="%s">'
                     '<a class="hpart" href="%s" data-find="%s">'
@@ -9116,8 +9442,7 @@ class Handler(BaseHTTPRequestHandler):
                     'aria-pressed="%s">Read</button>'
                     '<button type="button" class="hflag" data-k="watched" '
                     'aria-pressed="%s">Watched</button>'
-                    '<span class="hstars" role="group" '
-                    'aria-label="Rate this lesson">%s</span>'
+                    '%s'
                     '</span></div>'
                     % (" seen" if was else "",
                        esc(doc, quote=True),
@@ -9313,7 +9638,8 @@ class Handler(BaseHTTPRequestHandler):
         text = readings_content(self.cfg)
         if text is not None:
             try:
-                page = compose_lesson(self.cfg, text, "readings")
+                page = compose_lesson(self.cfg, text, "readings",
+                                      served_from=self._page_origin())
             except split_lessons.Problem as exc:
                 return self._text("could not compose the readings page: %s\n" % exc,
                                   500)
@@ -9355,7 +9681,8 @@ class Handler(BaseHTTPRequestHandler):
                               "yet. A course build files them as it finds "
                               "them.\n", 404)
         try:
-            page = compose_lesson(self.cfg, text, "mistakes")
+            page = compose_lesson(self.cfg, text, "mistakes",
+                                  served_from=self._page_origin())
         except split_lessons.Problem as exc:
             return self._text("could not compose the mistakes page: %s\n" % exc,
                               500)
@@ -9763,7 +10090,9 @@ class Handler(BaseHTTPRequestHandler):
                 text = None
             if text is not None and split_lessons.is_content_file(text):
                 try:
-                    data = compose_lesson(self.cfg, text, candidate.name).encode("utf-8")
+                    data = compose_lesson(self.cfg, text, candidate.name,
+                                          served_from=self._page_origin()
+                                          ).encode("utf-8")
                 except (split_lessons.Problem, OSError, ValueError) as exc:
                     log(self.cfg, "compose FAILED %s: %s" % (candidate.name, exc))
                     # Loud, and specific about which of the three files is wrong.

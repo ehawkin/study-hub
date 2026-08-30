@@ -115,6 +115,26 @@ T_LAYER = "@@LAYER@@"
 T_STORE_PREFIX = "@@STORE_PREFIX@@"
 T_DOC_ID = "@@DOC_ID@@"
 T_DOC_TITLE = "@@DOC_TITLE@@"
+# 🔴 The origin the server is composing this page FOR, from the request's own
+# Host. It is what tells the layer it is being served rather than looked at:
+# see the guard in local-layer.html. Empty when nothing is serving (the
+# verifier composes pages only to parse them).
+T_SERVED_FROM = "@@SERVED_FROM@@"
+# The course's own NAME, so the header can say "Mood and Neuroscience" where it
+# used to print the enrolment code. A settings-level per-course fact, which the
+# architecture rule allows, stamped rather than looked up by the page.
+T_COURSE_NAME = "@@COURSE_NAME@@"
+# 🔴 The neighbouring lessons, as JSON, so a reader with no token can still move
+# through the module. Prev/next is otherwise served by `/api/materials`, and
+# every `/api/` path is token-gated, so on an unpaired device both nav strips
+# stayed hidden. `b868813` made the token prompt dismissable and labelled its
+# own control "Dismiss, and read without it", at which point "read without it"
+# meant "read this one page". Nav is not secret: it is two titles and two links
+# to lessons this server already serves unauthenticated to anyone who asks.
+T_LESSON_NAV = "@@LESSON_NAV@@"
+# This lesson's own stars and bulbs, so the header controls can show what is
+# already set without a round trip. Composed per request, so it cannot go stale.
+T_LESSON_STATE = "@@LESSON_STATE@@"
 T_VAULT = {
     "cls": "@@VAULT_CLS@@",
     "week": "@@VAULT_WEEK@@",
@@ -271,14 +291,31 @@ def build_shell(lessons):
     return head + "\n" + T_TITLE + T_BODY + engine + T_LAYER + "\n"
 
 
-def render(shell, layer, meta, body, title=None, cls="", store_prefix=DEFAULT_STORE_PREFIX):
-    """The page the browser gets: shell, with this lesson's facts in it."""
+def render(shell, layer, meta, body, title=None, cls="", store_prefix=DEFAULT_STORE_PREFIX,
+           served_from="", course_name="", nav=None, state=None):
+    """The page the browser gets: shell, with this lesson's facts in it.
+
+    🔴 `served_from` is the origin this page is being composed FOR, and it is how
+    the reader's layer knows it is on a server. It used to work that out by
+    looking at the hostname, which cost a night on 2026-08-29: the machine moved
+    to its MagicDNS name, the name matched neither loopback nor the Tailscale
+    range, and every lesson silently rendered with the layer switched off. The
+    server knows the answer at compose time and no longer makes the page guess."""
     title_tag = title if title is not None else "<title>%s</title>" % meta.get("title", "")
     out = shell.replace(T_TITLE, title_tag).replace(T_BODY, body)
     out = out.replace(T_LAYER, layer)
     out = out.replace(T_DOC_ID, js_escape(meta.get("doc", "")))
     out = out.replace(T_DOC_TITLE, js_escape(meta.get("title", "")))
     out = out.replace(T_STORE_PREFIX, js_escape(store_prefix))
+    out = out.replace(T_SERVED_FROM, js_escape(served_from))
+    out = out.replace(T_COURSE_NAME, js_escape(course_name))
+    # 🔴 `<` becomes \u003c BEFORE js_escape, so a lesson title containing
+    # "</script>" cannot close the tag it is sitting inside. js_escape covers
+    # quotes, backslashes and newlines; it has no reason to know about HTML,
+    # and this is the one token whose value is structured rather than a word.
+    for tok, val in ((T_LESSON_NAV, nav), (T_LESSON_STATE, state)):
+        out = out.replace(tok,
+                          js_escape(json.dumps(val or {}).replace("<", "\\u003c")))
     out = out.replace(T_VAULT["cls"], js_escape(cls))
     for key in VAULT_KEYS:
         if key == "cls":
@@ -288,7 +325,10 @@ def render(shell, layer, meta, body, title=None, cls="", store_prefix=DEFAULT_ST
     # would also fire on a lesson that happened to print one in its prose, and a
     # lesson must never be able to break its own page.
     left = [t for t in [T_TITLE, T_BODY, T_LAYER, T_DOC_ID, T_DOC_TITLE,
-                        T_STORE_PREFIX] + list(T_VAULT.values()) if t in out]
+                        T_STORE_PREFIX, T_SERVED_FROM,
+                        T_COURSE_NAME, T_LESSON_NAV,
+                        T_LESSON_STATE] + list(T_VAULT.values())
+            if t in out]
     if left:
         raise Problem("unfilled tokens in the composed page: %s" % sorted(left))
     return out
