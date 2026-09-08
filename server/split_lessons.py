@@ -124,6 +124,22 @@ T_SERVED_FROM = "@@SERVED_FROM@@"
 # used to print the enrolment code. A settings-level per-course fact, which the
 # architecture rule allows, stamped rather than looked up by the page.
 T_COURSE_NAME = "@@COURSE_NAME@@"
+# 🔴 The build id of the server that composed this page, so the page can tell
+# it has gone stale. The layer compares it against `/healthz` when the tab comes
+# back into view; see the notice in local-layer.html.
+#
+# EMPTY IS THE NORMAL ANSWER for a page composed by anything that is not a live
+# server: the kit's builder, a rebuild, the verifier. Those pages have no server
+# to be stale against, and a page that carried the BUILDING machine's id would
+# ask a reader on another machine to reload for ever.
+T_BUILD_ID = "@@BUILD_ID@@"
+# 🔴 What to call the machine the server runs on, for the two sentences that
+# have to name it: where an attached file is kept, and where to go if the
+# server stops answering. The reader said "the Mini" until 2026-08-30, which is
+# EH's machine and nobody else's. Empty is normal and fine: a page composed by
+# nothing in particular, or by a build rather than a server, and the layer says
+# "the study server". A reader on loopback never reads it at all.
+T_MACHINE_NAME = "@@MACHINE_NAME@@"
 # 🔴 The neighbouring lessons, as JSON, so a reader with no token can still move
 # through the module. Prev/next is otherwise served by `/api/materials`, and
 # every `/api/` path is token-gated, so on an unpaired device both nav strips
@@ -135,6 +151,10 @@ T_LESSON_NAV = "@@LESSON_NAV@@"
 # This lesson's own stars and bulbs, so the header controls can show what is
 # already set without a round trip. Composed per request, so it cannot go stale.
 T_LESSON_STATE = "@@LESSON_STATE@@"
+# The pinned pdf.js version. It is the cache key in the vendor URL, so the page
+# has to carry it; the server reads it from the vendor lockfile and never types
+# it. Empty is the honest answer for a page composed with no vendor folder.
+T_PDFJS = "@@PDFJS@@"
 T_VAULT = {
     "cls": "@@VAULT_CLS@@",
     "week": "@@VAULT_WEEK@@",
@@ -292,7 +312,8 @@ def build_shell(lessons):
 
 
 def render(shell, layer, meta, body, title=None, cls="", store_prefix=DEFAULT_STORE_PREFIX,
-           served_from="", course_name="", nav=None, state=None):
+           served_from="", course_name="", nav=None, state=None, pdfjs="",
+           machine_name="", build_id=""):
     """The page the browser gets: shell, with this lesson's facts in it.
 
     🔴 `served_from` is the origin this page is being composed FOR, and it is how
@@ -309,6 +330,9 @@ def render(shell, layer, meta, body, title=None, cls="", store_prefix=DEFAULT_ST
     out = out.replace(T_STORE_PREFIX, js_escape(store_prefix))
     out = out.replace(T_SERVED_FROM, js_escape(served_from))
     out = out.replace(T_COURSE_NAME, js_escape(course_name))
+    out = out.replace(T_BUILD_ID, js_escape(build_id))
+    out = out.replace(T_MACHINE_NAME, js_escape(machine_name))
+    out = out.replace(T_PDFJS, js_escape(pdfjs))
     # 🔴 `<` becomes \u003c BEFORE js_escape, so a lesson title containing
     # "</script>" cannot close the tag it is sitting inside. js_escape covers
     # quotes, backslashes and newlines; it has no reason to know about HTML,
@@ -326,8 +350,8 @@ def render(shell, layer, meta, body, title=None, cls="", store_prefix=DEFAULT_ST
     # lesson must never be able to break its own page.
     left = [t for t in [T_TITLE, T_BODY, T_LAYER, T_DOC_ID, T_DOC_TITLE,
                         T_STORE_PREFIX, T_SERVED_FROM,
-                        T_COURSE_NAME, T_LESSON_NAV,
-                        T_LESSON_STATE] + list(T_VAULT.values())
+                        T_COURSE_NAME, T_MACHINE_NAME, T_BUILD_ID, T_LESSON_NAV,
+                        T_LESSON_STATE, T_PDFJS] + list(T_VAULT.values())
             if t in out]
     if left:
         raise Problem("unfilled tokens in the composed page: %s" % sorted(left))

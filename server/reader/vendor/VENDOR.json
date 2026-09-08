@@ -1,0 +1,29 @@
+{
+ "_": "The lockfile the kit's privacy audit checks vendored files against. A file here is audited by HASH, not by the personal-data scan: it is somebody else's published release, and what matters about it is that it is byte-identical to what they published. Any file in this folder that is missing from `files`, or whose hash does not match, BLOCKS the build.",
+ "pdfjs": {
+  "version": "6.2.108",
+  "package": "pdfjs-dist",
+  "build": "legacy, minified",
+  "source": "https://registry.npmjs.org/pdfjs-dist/-/pdfjs-dist-6.2.108.tgz",
+  "tarball_sha1": "1e0ce0f4b3a034f953dbbe2334ab01fbddf0eb30",
+  "tarball_integrity": "sha512-YxFb+SQcodN2rnX9Tn3dHYlqfb7NjlzzfONPpJd+AKoKtUjEdevTfbC07d5TcczzOK6261auRkP/M8OBHs9vFQ==",
+  "license": "Apache-2.0",
+  "added": "2026-08-30",
+  "why_this_version": "Released 2026-07-28, so 32 days old at adoption: past the project's 14-day rule, which applies to the pinned VERSION and not only to the package. It is also the first release carrying the fix for GHSA-hq66-cqwq-w95j (high, published 2026-08-06, arbitrary JavaScript execution on opening a malicious PDF, affecting >= 5.6.83 and < 6.2.108). 6.3.289 was published 2026-08-29 and is one day old, which the rule forbids. The legacy build is vendored rather than the modern one because the devices that reported this defect are an iPad and a phone.",
+  "not_vendored": "cmaps/ (CJK), standard_fonts/ and wasm/ are left out. The first two matter only for PDFs that do not embed their fonts, and wasm/ only for JPEG2000 and JBIG2 images; all three are binary, which the audit cannot read, and no course material has needed them. A PDF that does will render with substituted fonts rather than fail."
+ },
+ "files": {
+  "pdf.min.mjs": {
+   "sha256": "9fab0c910bf1484835c5c2aeb68f7eb3dfce7f9eb435a004526c5af86d70890c",
+   "bytes": 512483
+  },
+  "pdf.worker.min.mjs": {
+   "sha256": "bc0d1b88ea0b66196b1d36a58ac243c6d92adfe725624e2a9fdd381bdf8ef434",
+   "bytes": 1312452
+  },
+  "LICENSE-pdfjs.txt": {
+   "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+   "bytes": 10174
+  }
+ }
+}

@@ -29,11 +29,11 @@
      fixes every course, imported packs included. */
   :root { --muted: #5F7178; }
 
-  :root { --hl-key: #C9E4DC; --hl-q: #F3DDBE; --hl-d: #CBDCEA; --hl-d-line: #2F6187; }
+  :root { --hl-key: #C9E4DC; --hl-q: #F3DDBE; --hl-d: #CBDCEA; --hl-d-line: #2F6187; --hl-blend: multiply; }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) { --hl-key: #22504A; --hl-q: #4B3721; --hl-d: #22384E; --hl-d-line: #7FB0D0; }
+    :root:not([data-theme="light"]) { --hl-key: #22504A; --hl-q: #4B3721; --hl-d: #22384E; --hl-d-line: #7FB0D0; --hl-blend: screen; }
   }
-  :root[data-theme="dark"] { --hl-key: #22504A; --hl-q: #4B3721; --hl-d: #22384E; --hl-d-line: #7FB0D0; }
+  :root[data-theme="dark"] { --hl-key: #22504A; --hl-q: #4B3721; --hl-d: #22384E; --hl-d-line: #7FB0D0; --hl-blend: screen; }
 
   mark.hl {
     background: var(--hl-key); color: inherit; border-radius: 2px; cursor: pointer;
@@ -41,6 +41,46 @@
   }
   mark.hl.q { background: var(--hl-q); }
   mark.hl.d { background: var(--hl-d); }
+
+  /* ---------- two or more colours on one passage MIX ----------
+
+     🟢 RULED BY EH, 2026-09-04, twice: "it's okay if mixing two colors
+     produces a color that's not in the palette. It's fine. It's not an actual
+     like color that needs to be shown up as a tag anywhere. It just shows up
+     as part of the highlight. Yes, let's do the color mixing." This REPLACES
+     the diagonal stripes he chose the day before, which had a measured limit:
+     three colours stack with the same phase and period, so the middle one was
+     invisible. A mix has no such limit, because every mark contributes to the
+     colour under it whatever the depth.
+
+     🔴 HOW IT WORKS, and why there is still no rule per PAIR of colours: the
+     inner mark is BLENDED with what it sits on instead of painted over it.
+     `mix-blend-mode` does the arithmetic in the browser, so the inner never
+     has to know the outer's colour, and a third mark blends with the result of
+     the first two. The single-mark rules above are untouched: a passage with
+     one colour paints exactly as it did.
+
+     ⚠️ THE BLEND IS A THEME TOKEN, because the arithmetic has a sign. Light
+     highlights are pale on a pale ground, and MULTIPLY darkens the overlap the
+     way two highlighter pens do (yellow over teal reads olive). Dark highlights
+     are dark on a dark ground, and multiply would send the overlap to near
+     black, a hole rather than a highlight; SCREEN is the same operation with
+     the lightness reversed, so the overlap lights up instead. What the text
+     contrast comes to at each depth in each theme is MEASURED and reported to
+     EH, not enforced here: dark mode's look is his call, by his own ruling
+     ("if there are any issues with dark mode, let me determine that").
+
+     🟢 `isolation: isolate` on a mark that CONTAINS a mark makes the inner
+     blend with the outer's colour and nothing behind it, so the mixed colour is
+     the same on the plain page, in a tinted box, or over a figure. A single
+     mark never matches `:has(mark.hl)`, so it gains no stacking context.
+
+     🔴 NOTHING NAMES THE MIXED COLOUR. It exists only in paint: the computed
+     background of every mark is still its own `--hl-*` token, the notebook and
+     the filter read the CLASS, and no tag, button or border ever receives it. */
+  mark.hl:has(mark.hl) { isolation: isolate; }
+  mark.hl mark.hl { mix-blend-mode: var(--hl-blend); }
+
   mark.hl.noted { box-shadow: inset 0 -2px 0 var(--regulated); }
   mark.hl.active { outline: 2px solid var(--regulated); outline-offset: 1px; }
 
@@ -150,8 +190,32 @@
     border: 1px solid var(--broken); line-height: 1.45;
   }
   .hl-empty { color: var(--muted); font-size: 14.5px; padding: 20px 0; line-height: 1.55; }
+  /* 🔴 z-index 98 and `pointer-events: none` ARE ONE CHANGE, and shipping either
+     alone is worse than shipping neither. Ruled 2026-09-01 on a QA finding: the
+     toast was at 90 and `.sv-token`, the bar that asks an unpaired device for the
+     token, is at 95 and sits in the same place, bottom centre, opaque and larger.
+     `elementFromPoint` at the toast's own centre returned the BAR'S PASSWORD INPUT,
+     so the stale-page notice lived its 3.2 seconds and was removed entirely behind
+     the bar. The reader most likely to need that notice is the one who never saw it.
+
+     🔴 The other half: this rule declared no `pointer-events`, so it defaulted to
+     `auto`. Raising the toast alone would have turned "the reader cannot SEE the
+     message" into "the reader cannot TYPE THEIR TOKEN for 3.2 seconds", on the exact
+     device the notice was raised for, and no test that checks the toast is on top
+     would have noticed.
+
+     🟢 A toast is a message and never a target, and that is structural rather than
+     circumstantial: `toast()` below builds the node with `t.textContent = msg`, so
+     across all 52 call sites it can only ever hold a text node. Making one clickable
+     means editing that line, which is where anybody adding a button would be standing.
+
+     The stack above 80: 80 popover · 84 scrim · 85 dialog · 88 panel · 91 wipescrim ·
+     92 wipe · 95 token bar · 96 mini · 97 palette · 98 TOAST · 2147483647 watchdog.
+     🔴 Below the watchdog on purpose: a bar saying the page did not load must never
+     be covered by a toast about highlights. */
   .hl-toast {
-    position: fixed; left: 50%; transform: translateX(-50%); bottom: 26px; z-index: 90;
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 26px; z-index: 98;
+    pointer-events: none;
     background: var(--ink); color: var(--paper); font: 13.5px var(--body);
     padding: 9px 17px; border-radius: 999px; box-shadow: 0 6px 20px rgba(0,0,0,.25);
   }
@@ -230,11 +294,6 @@
   </div>
   <footer>
     <button type="button" id="hlExport">Export .md</button>
-    <!-- Dead since R40 and hidden at runtime by the layer, but the node stays
-         because its listener is bound at lesson load. Named for what it does
-         rather than for one person's vault, because this file ships to other
-         students (plan 02 §9) and "The Box" means nothing to them. -->
-    <button type="button" id="hlVault">Copy for vault</button>
     <button type="button" id="hlCopy">Copy</button>
     <label>Import<input type="file" id="hlImport" accept=".md,.json" hidden></label>
     <button type="button" id="hlClear">Clear all</button>
@@ -252,6 +311,28 @@
   /* The course's own name, for the header crumb. Empty on a page composed
      before this existed, and the layer falls back to the code. */
   var COURSE_NAME = '@@COURSE_NAME@@';
+  /* 🔴 The build id of the server that composed this page. The layer compares
+     it against /healthz when the tab comes back into view, so a tab left open
+     across a restart can say so instead of writing with an old engine.
+
+     EMPTY IS THE NORMAL ANSWER and means "run no check": a page composed by a
+     rebuild, by the kit's builder or by the verifier has no server to be stale
+     against. Same unfilled-token rule as SERVED_FROM below, and here the token
+     surviving would be strictly worse than empty: it matches no build id the
+     server can ever return, so every tab would ask for a reload for ever. */
+  var SERVED_BUILD = '@@BUILD_ID@@';
+  if (SERVED_BUILD.indexOf('@@') === 0) SERVED_BUILD = '';
+  /* What to call the machine this server runs on, for the two sentences that
+     have to name it. Empty is the normal answer for a page nobody served, and
+     for a reader on loopback it is never consulted at all.
+
+     Same unfilled-token rule as SERVED_FROM below, and here it is the cheap
+     kind of wrong: an older server leaves the token verbatim, and the Files
+     pane then says an attachment is kept on a machine called by the token's
+     own name. Written without spelling the token out, because render() would
+     substitute it inside this comment too. */
+  var MACHINE_NAME = '@@MACHINE_NAME@@';
+  if (MACHINE_NAME.indexOf('@@') === 0) MACHINE_NAME = '';
   /* 🔴 An UNFILLED token means this page template is newer than the server
      composing it: the file is picked up from disk without a restart (it is
      mtime-cached), while the Python that fills the token is only loaded at
@@ -280,6 +361,18 @@
       ? JSON.parse(LESSON_NAV) : null;
   } catch (e) { LESSON_NAV = null; }
   if (LESSON_NAV && !LESSON_NAV.prev && !LESSON_NAV.next) LESSON_NAV = null;
+
+  /* 🔴 The pinned pdf.js version, which is the CACHE KEY in the vendor URL and
+     the answer to "is there a viewer at all". Empty means no viewer: a page
+     composed by a server built without the vendored files, or opened as a file.
+     The pane then behaves exactly as it did before this existed.
+
+     Same unfilled-token rule as everything above, and here it matters more than
+     usual: left verbatim it would be a version string of '@@PDFJS@@', the page
+     would ask for /reader/vendor/@@PDFJS@@/pdf.min.mjs, and the 404 would arrive
+     as a module-load failure with no obvious cause. */
+  var PDFJS_VERSION = '@@PDFJS@@';
+  if (PDFJS_VERSION.indexOf('@@') === 0) PDFJS_VERSION = '';
 
   /* This lesson's own stars and bulbs, for the header controls. Same unfilled
      token rule; an older server emits it verbatim and it becomes {}. */
@@ -500,21 +593,114 @@
       });
     });
 
-    items.forEach(function (it) {
-      if (!it.n) return;
-      document.querySelectorAll('mark.hl[data-id="' + it.id + '"]').forEach(function (m) {
-        m.classList.add('noted');
+    /* 🔴 By GROUP, not by item. A group's note lives on its head, so painting
+       `noted` per item put the marker on the first cell of a two-cell highlight
+       and left the second bare. Found by reloading the page rather than by a
+       test: the panel was right and the page was not. */
+    groupMarks(items).forEach(function (g) {
+      if (!g.n) return;
+      g.ids.forEach(function (id) {
+        document.querySelectorAll('mark.hl[data-id="' + id + '"]').forEach(function (m) {
+          m.classList.add('noted');
+        });
       });
+    });
+  }
+
+  /* ---------- one selection is one highlight ----------
+
+     EH, 2026-08-30: "when I select what amounts to more than one cell in a
+     table and make that a highlight, it currently ends up showing up as two
+     separate highlight notes in my notebook... A single selection shouldn't be
+     the single note or single highlight. Even if it's two different sections,
+     you can separate them in the note, let's say with a dash between the two
+     items, but they should nevertheless be considered one note and one
+     highlight."
+
+     🔴 The STORE still keeps one item per block, and that is deliberate rather
+     than lazy. Painting wraps text nodes inside one block and re-anchoring
+     re-finds offsets within one block, so a single item holding several ranges
+     would mean rewriting the painter, the re-anchorer and the absorber. What
+     the store gained is a shared group id `g`; what changed is every place that
+     PRESENTS marks, which now folds a group into one row: text joined in
+     document order with " - " (EH's own suggestion), one note, one colour, one
+     delete.
+
+     🔴 An item with no `g` is a group of one. That is every highlight made
+     before today, so nothing is migrated and nothing can be lost by this. */
+  function groupMarks(list) {
+    var sorted = (list || []).slice().sort(function (a, z) {
+      return (a.b - z.b) || (a.s - z.s);
+    });
+    /* 🔴 `Object.create(null)`, not `{}`, and it is one character of hardening
+       for a loud failure. A group id of `constructor` or `__proto__` would find
+       `Object.prototype`, make `byG[g]` truthy for a group that does not exist,
+       and throw where Python folds it happily: the whole notebook stops
+       rendering. Ids are minted `'g' + seq` below, so it is unreachable from
+       this product's own code; it costs nothing while the fold is open. */
+    var out = [], byG = Object.create(null);
+    sorted.forEach(function (it) {
+      var g = it.g;
+      if (!g) { out.push({ head: it, parts: [it] }); return; }
+      if (byG[g]) { byG[g].parts.push(it); return; }
+      byG[g] = { head: it, parts: [it] };
+      out.push(byG[g]);
+    });
+    return out.map(function (grp) {
+      var parts = grp.parts;
+      var alive = parts.filter(function (p) { return !p.orphan; });
+      /* 🔴 The head for ANCHORING is the first surviving part, not the first
+         part. The original head is the one most likely to have orphaned (a
+         group's note is consolidated onto its first member), and taking `b`
+         and `s` from a lost block is how the published form ended up pointing
+         at nothing. Everything positional comes from `anchor`; everything that
+         belongs to the SELECTION comes from the whole group. */
+      var anchor = alive.length ? alive[0] : parts[0];
+      /* 🔴 The ANCHOR's own note wins, and only then any other part's. The
+         panel addresses a group by its anchor's id, so a note edited after one
+         part orphaned is written to the anchor; reading "the first part with a
+         note" in document order would find the orphan's OLD note and quietly
+         undo the edit. The fallback is what rescues the note when the head is
+         the part that was lost. */
+      var noted = String(anchor.n || '').trim() ? anchor : parts.filter(function (p) {
+        return String(p.n || '').trim();
+      })[0];
+      var coloured = anchor.c ? anchor : parts.filter(function (p) { return p.c; })[0];
+      return {
+        /* The anchor's id addresses the group everywhere: `data-item` in the
+           panel, the layer's svItemFor, jumpTo's scroll target. So a group of
+           one is byte-for-byte the object every consumer already handled. */
+        id: anchor.id, g: anchor.g || '', b: anchor.b, s: anchor.s,
+        c: (coloured && coloured.c) || 'k',
+        head: anchor, parts: parts,
+        ids: parts.map(function (p) { return p.id; }),
+        /* Every part, orphaned or not: the words EH highlighted are still the
+           words he highlighted, whatever happened to one block's anchor. */
+        t: parts.map(function (p) {
+          return String(p.t || '').replace(/\s+/g, ' ').trim();
+        }).filter(Boolean).join(' - '),
+        /* The note belongs to the GROUP and survives whichever part was lost.
+           Taking it from the head alone is what silently emptied it in the
+           vault when the head orphaned. */
+        n: (noted && noted.n) || '',
+        /* Orphaned only when EVERY part lost its anchor. One surviving part
+           still knows where the group is, and the words of the lost part are
+           still safe in `t`. */
+        orphan: !alive.length
+      };
     });
   }
 
   /* ---------- panel ---------- */
 
   function renderPanel() {
-    fabN.textContent = String(items.length + notes.length);
-    count.textContent = (items.length + notes.length) === 0 ? '' :
+    /* Counted in GROUPS, not items: one selection is one highlight, so a
+       passage dragged across two table cells must not read as two. */
+    var nHl = groupMarks(items).length;
+    fabN.textContent = String(nHl + notes.length);
+    count.textContent = (nHl + notes.length) === 0 ? '' :
       (notes.length + (notes.length === 1 ? ' note' : ' notes') + ', ' +
-       items.length + (items.length === 1 ? ' highlight' : ' highlights'));
+       nHl + (nHl === 1 ? ' highlight' : ' highlights'));
 
     if (!storeOK) {
       warn.hidden = false;
@@ -539,6 +725,12 @@
     notes.slice().sort(function (a, z) { return (z.ts || 0) - (a.ts || 0); }).forEach(function (nt) {
       var wrap = document.createElement('div');
       wrap.className = 'hl-note';
+      /* 🔴 Addressable, exactly as a highlight row is by `data-item`. The
+         reader's layer decorates these rows and had no way to say WHICH note a
+         row was: the list is sorted by time here, so matching by position is a
+         race with the next edit. One attribute costs nothing and is the same
+         seam that already exists one section down. */
+      wrap.setAttribute('data-note', String(nt.id));
 
       var ta = document.createElement('textarea');
       ta.value = nt.text || '';
@@ -591,10 +783,14 @@
       return;
     }
 
-    items.slice().sort(function (a, z) { return (a.b - z.b) || (a.s - z.s); }).forEach(function (it) {
+    /* One row per GROUP. The row is addressed by the group's head id, which is
+       what `data-item` has always carried, so the reader's layer decorating
+       these rows (svItemFor, the note editor) needs no change at all. */
+    groupMarks(items).forEach(function (it) {
       var wrap = document.createElement('div');
       wrap.className = 'hl-item' + (it.c === 'q' ? ' q' : (it.c === 'd' ? ' d' : '')) + (it.orphan ? ' orphan' : '');
       wrap.setAttribute('data-item', String(it.id));
+      if (it.ids.length > 1) wrap.setAttribute('data-group', it.ids.join(','));
 
       var q = document.createElement('blockquote');
       q.textContent = it.t;
@@ -611,10 +807,17 @@
       ta.value = it.n || '';
       ta.placeholder = 'Add a note';
       ta.addEventListener('input', function () {
-        it.n = ta.value;
+        /* 🔴 The note is written to the group's HEAD, which is the one place
+           it can live: `it` here is a fold, not a stored object, so writing to
+           it would be writing to something that stops existing on the next
+           render. Every part is repainted as noted, so the whole group carries
+           the underline rather than only its first block. */
+        it.head.n = ta.value;
         save();
-        document.querySelectorAll('mark.hl[data-id="' + it.id + '"]').forEach(function (m) {
-          m.classList.toggle('noted', !!it.n);
+        it.ids.forEach(function (id) {
+          document.querySelectorAll('mark.hl[data-id="' + id + '"]').forEach(function (m) {
+            m.classList.toggle('noted', !!ta.value);
+          });
         });
       });
       wrap.appendChild(ta);
@@ -627,7 +830,7 @@
         jump.type = 'button';
         jump.className = 'mini';
         jump.textContent = 'Jump to';
-        jump.addEventListener('click', function () { jumpTo(it.id); });
+        jump.addEventListener('click', function () { jumpTo(it.ids); });
         row.appendChild(jump);
       }
 
@@ -636,7 +839,12 @@
       del.className = 'mini';
       del.textContent = 'Remove';
       del.addEventListener('click', function () {
-        items = items.filter(function (x) { return x.id !== it.id; });
+        /* Deleting any member deletes the group. One selection made it, one
+           Remove takes it away; leaving the other half painted with no row in
+           the panel would be worse than either outcome. */
+        var gone = {};
+        it.ids.forEach(function (id) { gone[id] = true; });
+        items = items.filter(function (x) { return !gone[x.id]; });
         save(); renderMarks(); renderPanel();
       });
       row.appendChild(del);
@@ -646,16 +854,150 @@
     });
   }
 
-  function jumpTo(id) {
-    var m = document.querySelector('mark.hl[data-id="' + id + '"]');
+  /* 🔴 Takes the whole GROUP, not one id. A selection across two table cells is
+     painted as two marks, and flashing only the first would say the highlight
+     is half the size it is. It also survives a half-orphaned group: the scroll
+     goes to the first part still on the page, rather than giving up because the
+     head is the part that lost its anchor. */
+  function jumpTo(ids) {
+    var list = (typeof ids === 'object' && ids.length) ? ids : [ids];
+    var sel = list.map(function (id) { return 'mark.hl[data-id="' + id + '"]'; }).join(',');
+    var m = document.querySelector(sel);
     if (!m) return;
-    closePanel();
-    m.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    document.querySelectorAll('mark.hl.active').forEach(function (x) { x.classList.remove('active'); });
-    document.querySelectorAll('mark.hl[data-id="' + id + '"]').forEach(function (x) { x.classList.add('active'); });
-    window.setTimeout(function () {
+    /* 🔴 THE CLOSE IS WRONG WIDE AND LOAD-BEARING NARROW, so it is gated
+       rather than removed. EH, 2026-08-31: "the right panel closes. It should
+       not." Above 899px the panel is DOCKED, not an overlay: the layer's
+       `setPanelSpace()` writes `--sv-reserved` and `local-layer.html` spends it
+       as `body { padding-right }` inside `@media (min-width: 900px)`, so the
+       lesson re-centres in what is left and nothing is ever underneath the
+       panel. Closing it buys the reader nothing and costs them the list they
+       were working from.
+
+       At or below 899px the panel IS the screen and `lockPage()` pins
+       `body { position: fixed }`, so the close is what STARTS the unlock and
+       without it the page stays pinned for good.
+
+       🔴 STARTS, NOT COMPLETES, AND THE NARROW BRANCH IS BROKEN BECAUSE
+       OF IT. Reproduced in a browser 2026-09-01 by `study-hub-qa` at a real
+       386px viewport, three runs from three positions: the page ends EXACTLY
+       where it began (200→200, 1500→1500, 1200→1200) with the mark 8218px,
+       1083px and 7218px away. Two independent reasons, and the second is the
+       one that rules out "a faster machine would win it":
+
+         1. `closePanel()` only sets `panel.hidden`. The unlock is the LAYER's,
+            reached asynchronously — `MutationObserver(setPanelSpace)` →
+            `setPanelSpace()` → `lockPage(false)`, whose last act is
+            `window.scrollTo(0, was)`. QA recorded it at t+4ms, undoing the jump.
+         2. **`scrollIntoView` runs one line below on a body that is still
+            `position: fixed; top: -1200px`, with `html.sv-locked` still set.**
+            There is nothing to scroll at that moment. Proved with
+            `scroll-behavior: auto` forced, which removes animation from the
+            argument entirely.
+
+⚠️ So the gate above is CORRECT and this is not its bug: the close
+       is load-bearing here and the branch behaved this way before the gate
+       existed. 🟢 **FIXED 2026-09-01: the scroll is now deferred past the
+       unlock**, immediately below. The coupling this paragraph worried about is
+       real and is spelled out there: the shell reads `sv-locked`, which the
+       layer owns, and a test pins both ends. **What it does NOT do is wait on a
+       timer**, which is what the entry ruled out.
+
+       🔴 899 IS THE LAYER'S BREAKPOINT, CROSSING INTO THE SHELL, and
+       this is the only place the two files agree on it by hand: if it moves in
+       `local-layer.html` it must move here, and nothing will connect them.
+       The same test guards the same problem for the chat panel at
+       `local-layer.html:6799` (`jumpToChat`), and the shape is copied from
+       there deliberately. Reading `html.sv-locked` would also be correct and
+       is the better statement of WHY the narrow branch stays: the close is
+       undoing a lock, not dismissing a panel. */
+    var phone = window.matchMedia && window.matchMedia('(max-width: 899px)').matches;
+    if (phone) closePanel();
+
+    /* 🔴 THE SCROLL WAITS FOR THE UNLOCK, NOT FOR THE CLOSE, and that
+       distinction is the whole fix. Closing the panel only sets `panel.hidden`;
+       the unlock is the LAYER's and arrives later, on its MutationObserver.
+       Reproduced here independently of QA, at a 382px viewport, three starting
+       positions, both directions, with pass-through recorders self-tested by a
+       sentinel first:
+
+         started 200   the mark 17742px below   ended 200   not on screen
+         started 1500  the mark 2724px above    ended 1500  not on screen
+         started 1200  the mark 15542px below   ended 1200  not on screen
+
+       Every run recorded the same two calls in the same millisecond:
+
+         scrollIntoView   body: fixed, top: -200px, html.sv-locked
+         scrollTo(0, 200)
+
+       🔴 So a repair that reorders these two calls, or delays the second by a
+       few milliseconds, STILL FAILS. At the moment `scrollIntoView` runs the
+       body is pinned and the document has nothing to scroll; the `scrollTo` a
+       moment later is `lockPage(false)` restoring the position the jump had just
+       tried to leave. Both have to be waited out, and waiting for the class
+       waits for both: `lockPage` removes `sv-locked` and calls `scrollTo`
+       synchronously in one task, so a MutationObserver callback, delivered on
+       the microtask checkpoint after that task, is guaranteed to run second. */
+    whenUnlocked(function () {
+      /* 🔴 Not `behavior: 'smooth'`, and it is PART OF THE FIX rather than a
+         tidy-up beside it. `goToBookmark` in the reader layer already refuses
+         smooth for a measured reason: animation-driven scrolling does not run in
+         a tab that is not painting.
+
+         ⚠️ CORRECTED 2026-09-01 by `study-hub-qa`, and my own version of this
+         was too modest. I shipped it as "a real if small UX change nobody asked
+         for", citing the sibling. They measured the case I only cited: in a tab
+         that is not painting, **smooth moved the page 0px while instant landed
+         at 6,758**. So keeping smooth would have left this fix not working at
+         all wherever the tab is not painting. **Do not restore it on the
+         strength of "it is only a slide".** */
+      m.scrollIntoView({ block: 'center' });
       document.querySelectorAll('mark.hl.active').forEach(function (x) { x.classList.remove('active'); });
-    }, 2200);
+      document.querySelectorAll(sel).forEach(function (x) { x.classList.add('active'); });
+      window.setTimeout(function () {
+        document.querySelectorAll('mark.hl.active').forEach(function (x) { x.classList.remove('active'); });
+      }, 2200);
+    });
+  }
+
+  /* Run `fn` once the page can actually be scrolled.
+
+     🟢 A DEAD LAYER COSTS NOTHING HERE, by construction rather than by a
+     branch: nothing but the layer ever sets `sv-locked`, so on a page whose
+     layer never loaded the class is absent and `fn` runs immediately, which is
+     exactly what this file did before.
+
+     🔴 `sv-locked` is the layer's class read from the shell, a hand-shared name
+     across two files with nothing connecting them, the same shape as the 899
+     breakpoint above. A test pins both ends. The alternative, waiting on a
+     timer, is what the entry rules out.
+
+     ⚠️ The cap is not a fallback that fixes anything: if the lock is genuinely
+     stuck, scrolling still does nothing and the reader is no worse off than they
+     are today. It is there so a lock that never lifts cannot leave an observer
+     watching the document for the life of the page, and so `fn` runs exactly
+     once whichever way it goes. A second panel left open is the real case: the
+     layer keeps the page locked while any of them is open, so this waits, then
+     gives up quietly. */
+  var UNLOCK_CLASS = 'sv-locked';
+  var UNLOCK_WAIT_MS = 1200;
+
+  function whenUnlocked(fn) {
+    var root = document.documentElement;
+    if (!root.classList.contains(UNLOCK_CLASS)) { fn(); return; }
+    if (!window.MutationObserver) { window.setTimeout(fn, 0); return; }
+    var done = false, timer = null;
+    var obs = new MutationObserver(function () {
+      if (!root.classList.contains(UNLOCK_CLASS)) finish();
+    });
+    function finish() {
+      if (done) return;
+      done = true;
+      obs.disconnect();
+      window.clearTimeout(timer);
+      fn();
+    }
+    obs.observe(root, { attributes: true, attributeFilter: ['class'] });
+    timer = window.setTimeout(finish, UNLOCK_WAIT_MS);
   }
 
   function openPanel()  { panel.hidden = false; fab.setAttribute('aria-expanded', 'true');  renderPanel(); }
@@ -750,34 +1092,111 @@
     bar.style.left = left + 'px';
   }
 
+  /* One group, one note. Everything the members carry is joined onto the head,
+     because the head is the only note any surface shows once they are a group.
+     Leaving a note on a member would make it invisible without deleting it,
+     which is the worst of the two outcomes.
+
+     🔴 `ns` (the reader's several-notes-per-highlight array) is DROPPED from the
+     head rather than merged, and `n` wins. `n` is defined as the joined text of
+     `ns` and is what every other consumer reads, so rebuilding `ns` from the
+     merged `n` on the next render loses no writing and keeps one source of
+     truth. Merging two `ns` arrays by hand would have to invent an id order. */
+  function consolidateGroup(gid, extra) {
+    // 🔴 `it.g &&` is here because this was correct only by luck: its ONE
+    // caller checks `if (gid)` before calling. A future caller will not know
+    // that, and `undefined === undefined` is true, so an empty gid would match
+    // every ungrouped mark in the lesson and consolidate the lot into one.
+    // Same shape as svGroupOf in local-layer.html; the server's group_marks
+    // asks `if not g` before it ever compares, which is why only the
+    // JavaScript half of this grouping has ever needed a guard.
+    var mine = items.filter(function (it) { return it.g && it.g === gid; });
+    if (!mine.length) return;
+    var grp = groupMarks(mine)[0];
+    var all = [];
+    grp.parts.forEach(function (p) {
+      if (p.n) all.push(p.n);
+      if (p !== grp.head) { delete p.n; delete p.ns; }
+    });
+    (extra || []).forEach(function (t) { if (t) all.push(t); });
+    var joined = all.join('\n');
+    if (joined) { grp.head.n = joined; delete grp.head.ns; }
+  }
+
+
   function add(cls) {
     if (!pending || !pending.length) return;
-    var made = 0;
+    var fresh = [], eaten = [], touched = {};
 
     pending.forEach(function (seg) {
       var block = blocks[seg.b];
       if (!block) return;
 
-      var s = seg.s, e = seg.e, note = '';
+      var s = seg.s, e = seg.e;
 
       /* An overlapping mark in the same block is absorbed rather than stacked,
          so re-marking a passage widens it instead of layering two. */
       items = items.filter(function (it) {
         if (it.b !== seg.b || it.s > e || it.e < s) return true;
+        /* 🟢 TWO COLOURS ON ONE PASSAGE. EH's ask, 2026-09-02: *"it should be
+           able to store more than one color highlight on a single word ...
+           because the different colors may have different meanings."*
+
+           🟢 THE WHOLE OF STACKING, MEASURED BEFORE IT WAS WRITTEN: the absorb
+           rule never looked at the colour, and `cls` is already this function's
+           only argument, so keeping a DIFFERENT colour is one clause. Returning
+           true means "not absorbed", which leaves the existing mark alone and
+           lets the new one be added beside it.
+
+           ⚠️ SAME-COLOUR OVERLAP STILL ABSORBS, which is the "widen a
+           highlight" gesture and the rule this clause replaced was protecting.
+           EH did not ask to lose it, so it is kept deliberately rather than by
+           accident: `it.c !== cls` is the entire difference.
+
+           🔴 IT SHIPPED BEHIND A SWITCH AND THE SWITCH IS GONE. Built off by
+           default 2026-09-04 (`a08d5c1`), on the manager's ruling that a
+           feature travelling through the part of this system with the worst
+           history does not get built in a copy of the file. Flipped and the
+           switch deleted once six conditions were proved: save, reload, a
+           second device, deleting one, recolouring one, and the LOOK.
+
+           🟢 THE LOOK IS THE MIX RULE in this file's stylesheet: colours on
+           one passage blend (EH's ruling of 2026-09-04, which replaced the
+           stripes he had chosen from three rendered options the day before).
+           See `mark.hl mark.hl`. */
+        if (it.c !== cls) return true;
         s = Math.min(s, it.s);
         e = Math.max(e, it.e);
-        if (it.n) note = note ? (note + '\n' + it.n) : it.n;
+        if (it.n) eaten.push(it.n);
+        /* 🔴 Which GROUPS this selection ate from, not only which items. Half a
+           group absorbed and the other half left wearing a group id nothing
+           else carries is precisely the orphan this rule prevents. */
+        if (it.g) touched[it.g] = true;
         return false;
       });
 
-      items.push({
+      fresh.push({
         id: seq++, b: seg.b, s: s, e: e,
-        t: block.textContent.slice(s, e), c: cls, n: note
+        t: block.textContent.slice(s, e), c: cls, n: ''
       });
-      made++;
     });
 
-    if (!made) return hideBar();
+    if (!fresh.length) return hideBar();
+
+    /* A group id when the selection crosses blocks, and also when it overlaps
+       a group that already exists. A single-block selection touching nothing
+       gets no `g` at all, so the common case stores exactly what it stored
+       before today and an old page reads it unchanged. */
+    var gid = '';
+    if (fresh.length > 1 || Object.keys(touched).length) {
+      gid = 'g' + (seq++);
+      fresh.forEach(function (it) { it.g = gid; });
+      items.forEach(function (it) { if (it.g && touched[it.g]) it.g = gid; });
+    }
+
+    items = items.concat(fresh);
+    if (gid) { consolidateGroup(gid, eaten); }
+    else if (eaten.length) { fresh[0].n = eaten.join('\n'); }
 
     var sel = window.getSelection();
     if (sel) sel.removeAllRanges();
@@ -789,11 +1208,12 @@
 
   function buildMarkdown() {
     var lines = [];
+    var nHl = groupMarks(items).length;
     lines.push('# Highlights: ' + DOC_TITLE);
     lines.push('');
     lines.push('Exported ' + new Date().toISOString().slice(0, 10) + '. ' +
                notes.length + (notes.length === 1 ? ' note, ' : ' notes, ') +
-               items.length + (items.length === 1 ? ' highlight.' : ' highlights.'));
+               nHl + (nHl === 1 ? ' highlight.' : ' highlights.'));
     lines.push('');
     lines.push('Re-import this same file in the artifact’s Highlights panel to restore them.');
     lines.push('');
@@ -808,7 +1228,10 @@
       lines.push('');
     }
 
-    var sorted = items.slice().sort(function (a, z) { return (a.b - z.b) || (a.s - z.s); });
+    /* Folded into groups first, so a selection that crossed two table cells
+       leaves ONE line here with its halves joined by " - ", not two. A fold
+       carries the same c, t and n an item does, so nothing below changes. */
+    var sorted = groupMarks(items);
     function bucket(c) { return sorted.filter(function (i) { return (i.c || 'k') === c; }); }
 
     function block(title, arr) {
@@ -867,7 +1290,10 @@
       L.push('');
     }
 
-    var sorted = items.slice().sort(function (a, z) { return (a.b - z.b) || (a.s - z.s); });
+    /* Folded into groups first, so a selection that crossed two table cells
+       leaves ONE line here with its halves joined by " - ", not two. A fold
+       carries the same c, t and n an item does, so nothing below changes. */
+    var sorted = groupMarks(items);
     function bucket(c) { return sorted.filter(function (i) { return (i.c || 'k') === c; }); }
 
     function block(title, arr, name) {
@@ -965,38 +1391,6 @@
       toast('Save unavailable here. Use Copy instead.');
     }
   });
-
-  document.getElementById('hlVault').addEventListener('click', function () {
-    if (items.length === 0 && notes.length === 0) return toast('Nothing to send yet.');
-    var md = buildVaultMd();
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(md)
-        .then(function () { toast('Copied in vault format. Paste into the week note.'); })
-        .catch(function () { saveVault(md); });
-    } else {
-      saveVault(md);
-    }
-  });
-
-  function saveVault(md) {
-    var name = 'KCL ' + VAULT.cls + ' W' + VAULT.week + ' - part ' + VAULT.part + '.md';
-    if (window.claude && window.claude.downloads) {
-      window.claude.downloads.save({ filename: name, data: md })
-        .then(function () { toast('Saved ' + name); })
-        .catch(function (err) {
-          if (err && err.code === 'declined') return;
-          toast('Could not save. Try Copy instead.');
-        });
-      return;
-    }
-    try {
-      var url = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
-      var a = document.createElement('a');
-      a.href = url; a.download = name;
-      document.body.appendChild(a); a.click(); a.remove();
-      window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-    } catch (e) { toast('Could not save. Try Copy instead.'); }
-  }
 
   document.getElementById('hlCopy').addEventListener('click', function () {
     if (items.length === 0 && notes.length === 0) return toast('Nothing to copy yet.');
@@ -1125,7 +1519,24 @@
        neither loopback nor the Tailscale range, so the layer exited cleanly and
        every lesson rendered with its reader switched off. */
     servedFrom: SERVED_FROM,
+    /* What this page was composed by. Empty means nothing can be said about
+       staleness, which is different from "current" and the layer treats it so. */
+    servedBuild: SERVED_BUILD,
     courseName: COURSE_NAME,
+    /* 🔴 The SHORT name, exported under its own name rather than left
+       for the header to reach into `VAULT` for. Same value and the same
+       source (`class_name` on the course), but the header is not a vault
+       concern, and a reader that borrowed `vault.cls` would lose its
+       course name the day the vault's field is renamed or the export is
+       turned off. One line here is the seam where that stays visible.
+
+       Empty is the ordinary case for a course made before 2026-08-30:
+       nothing a person could click supplied a short name until the
+       add-course page did, so the header must degrade without one. */
+    courseShort: VAULT.cls,
+    /* Same seam and same reason as lessonNav below: this script is an IIFE, so
+       a bare MACHINE_NAME is invisible over in the layer. */
+    machineName: MACHINE_NAME,
     /* 🔴 The neighbouring lessons, so the layer can draw nav without asking a
        token-gated API. It has to travel THROUGH here: this script is an IIFE,
        so LESSON_NAV is not a global and the layer cannot see it. Reaching for
@@ -1133,14 +1544,81 @@
        how the first version of this shipped past its own unit tests. */
     lessonNav: LESSON_NAV,
     lessonState: LESSON_STATE,
+    /* Same seam, same reason as lessonNav above: an IIFE's var is not a global,
+       so the layer reads the viewer's version from here or not at all. */
+    pdfjs: PDFJS_VERSION,
     vault:  VAULT,
     bar:    bar,
     vaultMd: function () { return buildVaultMd(true); },
     toast:  toast,
     hideBar: hideBar,
+    /* 🔴 EXPORTED 2026-09-04, and the reason it was withheld is spent rather
+       than overruled. It was: "an API with no caller is a guess about a defect
+       nobody has measured." There is now a caller and it is measured. QA drove
+       `jumpToChat` in the layer at a genuine 382px, three runs, both
+       directions, and recorded the same pair of calls this file's own jump
+       used to make: `scrollIntoView` on a body still `position: fixed` with
+       `html.sv-locked`, then `scrollTo` six milliseconds later putting the
+       reader back. The page ended exactly where it began, three times.
+
+       🔴 EXPORTED RATHER THAN COPIED, deliberately, and the comparison is with
+       `copyByTextarea` in the layer, which IS a copy of this file's
+       `fallbackCopy` and says why: exporting a clipboard helper "is a wider
+       change than this is worth". This is not that. It is one line here, and
+       what it buys is that the two "take me to this thing" controls cannot
+       drift, which is the entire point of the fix. The precedent that governs
+       is `groupMarks` a few lines below: exported because "a second
+       implementation would drift from this one the first time either changed",
+       and a delicate ordering argument is exactly the kind that drifts.
+
+       ⚠️ THE ODD PART, SAID OUT LOUD: `sv-locked` is the LAYER's class, so
+       this helper lives in the file that does not own it. That coupling is not
+       new (it shipped with the fix this one repeats) and exporting adds none of
+       it: the choice was between one reader of the class and two.
+
+       🟢 A STALE TAB CANNOT MEET AN UNDEFINED FUNCTION HERE, and the reason
+       is construction rather than a guard: `render()` composes this file and
+       the layer in ONE call, so a document always carries a matched pair and a
+       tab open from before this shipped holds the old shell AND the old layer
+       together.
+
+       ⚠️ SAID PRECISELY, IN THREE GOES, AND QA CORRECTED THE SECOND ONE:
+       both files deploy on save and are saved one after the other, so a request
+       landing between the two writes composes a NEW layer against an OLD shell,
+       and the call throws.
+
+       🔴 I FIRST WROTE "cannot happen", then narrowed it to "the width of two
+       file writes, only while somebody is deploying". QA measured that the
+       second version is still wrong, and the reason is structural: THERE IS NO
+       DEPLOYING STEP IN THIS PROJECT. The saves ARE the deploy. So the window
+       is however long a builder takes between saving one file and the other,
+       which is a working session, not an instant. They watched the live page
+       stamp match the WORKING TREE and not HEAD for minutes on 2026-09-04 while
+       86 lines of uncommitted reader code were being served.
+
+       🔴 AND THE THROW COSTS MORE THAN THE JUMP. `S.whenUnlocked` is unguarded
+       here, `jumpToChat` is called unguarded from the History row handler, and
+       `pBox.focus()` is on the next line, so during that window reopening a
+       conversation loses the INPUT FOCUS as well. There is no `window.onerror`
+       in the layer and a handler would not resume execution anyway. ⚠️ It is
+       not only phones: on a WIDE reader this branch runs even for a History row.
+
+       🟢 STILL NO FALLBACK, and QA agrees on the coder's own argument:
+       `S.whenUnlocked || (fn => fn())` is literally the control that measured
+       three zeros, so a fallback would silently reproduce the defect for the
+       life of the file. A permanent silent wrong beats a temporary loud one
+       only in a summary. What needed fixing was this sentence, not the code.
+       A test composes the two files and checks the seam holds. */
+    whenUnlocked: whenUnlocked,
     blockAt: function (i) { return blocks[i] || null; },
     onChange: function (fn) { syncHooks.push(fn); },
     marks: function () { return { items: items, notes: notes }; },
+    /* 🔴 The ONE grouper. The layer builds its own export and its own counts,
+       and a second implementation of "one selection is one highlight" would
+       drift from this one the first time either changed. Same seam and same
+       reason as lessonNav and lessonState: this script is an IIFE, so a bare
+       global would be undefined over there and fail in silence. */
+    groupMarks: function (list) { return groupMarks(list || items); },
     /* Write what marks() handed out, without re-rendering. R37 needs it: a
        note on a highlight autosaves while it is being typed, and going through
        replaceMarks would rebuild the panel and take the focus out of the box

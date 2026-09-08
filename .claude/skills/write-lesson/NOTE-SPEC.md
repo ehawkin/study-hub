@@ -304,6 +304,19 @@ deliberate:
    line for revision.
 8. **References** (see D).
 
+🔴 **An anatomical entry names what the structure does.** Where a glossary term
+is a brain structure, a nucleus, a tract or a named network, its definition
+states **the functions it is implicated in**, not only where it sits and what it
+borders. A definition that gives a reader only a location tells them nothing they
+can revise from.
+
+**This section is an ingestion source, not only a revision aid**, which is why
+this is a rule rather than a preference. `server/glossary_extend.py` harvests
+every `<dt>`/`<dd>` pair straight out of it into the course glossary, and that
+glossary is what the reader's lookup popover shows when the term is selected
+**anywhere in the course**. A thin definition does not stay in the lesson that
+wrote it.
+
 🔴 **Flag, do not silently fix.** Where the source is internally inconsistent,
 looks factually doubtful, or contradicts another part, say so and mark it
 unresolved. Never overrule the source silently, and never assert a correction as
@@ -446,6 +459,29 @@ resolves" proves nothing; all of them return HTTP 200.
 13. **Flag reading-list overlap.** If a cited paper is on the module reading list,
     say so, and give its week.
 
+### A study described in the body carries its reference at the point of description
+
+**A trailing References list does not discharge rule 9.** A reader partway through a
+section cannot tell which of thirty-odd references the paragraph in front of them is
+describing, and "verified DOIs only" is easy to satisfy with a bibliography while every
+study in the body goes unattributed.
+
+**A reference tag is enough, and it does not have to read as prose.** A bracketed
+author-year that links to the entry in the References list satisfies this in full. Write
+the study's name where you describe it; author and year is enough, a linked tag is better,
+and the DOI still goes in the References list, verified, exactly as before.
+
+**This is a rule rather than a note because it was measured, and it was systematic.** In
+one library of thirty lessons: 321 passages describing a study, 1,284 DOI links, and the
+links were in the bibliographies. In the first lesson opened by hand, 11 of its 12 sections
+described a study with no link inside them, while 36 DOIs sat at the end. The lesson
+described a secondary analysis with 23 patients per arm across three named treatment arms
+and named no study at all.
+
+**A passage that describes a study with no source anywhere needs a source found, not a
+tag.** Two lessons in that library carry study language and zero DOIs of any kind; a tag
+cannot be written for a paper nobody has identified.
+
 ## E. Diagrams
 
 1. **Draw mechanisms, not labels.** A diagram earns its place when it shows
@@ -471,16 +507,35 @@ resolves" proves nothing; all of them return HTTP 200.
 
 ## F. What gets produced
 
-One file per part: `courses/<CODE>/<DOC>-<slug>.html`, in the content-only shape
-the reader composes around (see `SKILL.md` for the exact structure). It carries
-**no provenance at all**: no source filenames, no file ids, no slide ranges, no
-runtimes, no numbering warnings, no OCR complaints. It reads as an independent
-resource end to end.
+**Two files per part, and the second one is not optional.**
 
-Where an audit trail is worth keeping, keep it in a working file beside the
-lesson rather than inside it. Navigation quirks ("this deck's footers say Topic
-4") are not provenance and belong wherever the course's own notes live, where
-they are actionable.
+| File | Purpose | Provenance |
+| --- | --- | --- |
+| `courses/<CODE>/<DOC>-<slug>.html` | The lesson, in the content-only shape the reader composes around (see `SKILL.md`). Must stand alone. | **None** |
+| `courses/<CODE>/<DOC>-outline.md` | The same content as a terse hierarchical outline, for grep and for pasting elsewhere. A working file, not a published resource. | **All of it**, in a block at the end |
+
+The HTML carries **no provenance at all**: no source filenames, no file ids, no
+slide ranges, no runtimes, no numbering warnings, no OCR complaints. It reads as
+an independent resource end to end. The outline is where all of that goes, and
+it may reference the source freely. Its body should still read cleanly, but it
+is not held to Section B.
+
+🔴 **The outline is load-bearing and its absence is silent, which is why it says
+"not optional" above.** `course_text()` builds the digest that whole-course
+questions are answered from, and it uses **1500 characters of the outline per
+lesson where one exists and falls back to 700 characters of the lesson's raw
+opening where it does not**. A course written without outlines answers
+whole-course questions from a thinner, uncurated digest and nothing anywhere
+says so. The second loss is the audit trail: provenance, slide mapping and
+numbering warnings deliberately live here rather than in the published lesson,
+so for a course without outlines they live nowhere.
+
+**This requirement was missing from this file until 2026-08-30** and one whole
+course (38 lessons) was written without a single outline. `verify_course.py`
+reports it now: `lesson outlines  partial (0 of 38)`.
+
+Navigation quirks ("this deck's footers say Topic 4") are not provenance and
+belong wherever the course's own notes live, where they are actionable.
 
 ## G. House style
 

@@ -1,0 +1,1985 @@
+<!-- sv-player-controls: injected into a mirrored package's own document by
+     `inject_player_controls()` in study_server.py, immediately after
+     `<div id="content"></div>`.
+
+     🔴 IT RUNS INSIDE THE PACKAGE'S SANDBOX, and that is the whole reason it is
+     here rather than in the lesson chrome. The package is served with
+     `Content-Security-Policy: sandbox allow-scripts` and NO `allow-same-origin`,
+     so it is an opaque origin: the lesson page cannot script into it, and it
+     cannot read localStorage, see the token, or call the API. A control that
+     touches the player has to be in here with it.
+
+     🔴 NOTHING IN THIS FILE MAY BREAK THE PACKAGE. Every entry point is
+     wrapped, the export's own callback is always called even if ours throws,
+     and a failure leaves a lecture that plays with no controls rather than a
+     grey rectangle. -->
+<style>
+  /* 🔴 The package sets its own `background-color:#8a8a8a` on <html> and
+     positions everything inside `#playerView` absolutely, so this cannot
+     inherit a theme and must not try: it carries its own colours and is legible
+     over the grey either way. The reader's light/dark choice lives in the
+     lesson page, which is a different document this one cannot see. */
+  /* 🔴 CONTRAST, COMPOSITED THROUGH THE REAL ALPHA STACK, not eyeballed
+     and not taken on trust: every figure below was computed from the four
+     `rgba()` values in this block and then re-derived independently by QA, cell
+     for cell. `test_the_contrast_numbers_in_the_comment_are_TRUE` recomputes
+     them from these declarations, so changing an alpha and leaving the comment
+     is a failing test rather than a reader's problem.
+
+     ⚠️ THE TWO NUMBERS THIS REPLACED WERE BOTH WRONG. "13.4:1" was the
+     black-slide case quoted as if it were the ordinary one, and "4.6:1" was not
+     reproducible from any layer at all. A measured-looking number in a comment
+     is believed, which is what makes an unchecked one expensive.
+
+       ground                enabled   rate pill   disabled
+       package grey #8a8a8a     9.89        7.29       3.41
+       a white slide            7.42        5.67       2.89
+       a black slide           13.70        9.88       4.06
+
+     🟢 THE WHITE ROW IS NOT ONE SAMPLE OF THREE, IT IS THE BOUND. Every
+     layer here is `alpha*ink + (1-alpha)*ground`, which rises with the ground,
+     and contrast against white text falls as luminance rises. So a white slide
+     is the WORST any slide can be, and a black one the best: 7.42 is not "one
+     of the grounds we tried", it is the floor. QA re-derived it independently
+     over the full RGB cube at step 3 -- 636,056 grounds -- and the argmin is
+     exactly white.
+
+     🔴 THIS SENTENCE USED TO CARRY "KCL teal, 11.38" AND THAT NUMBER HAS
+     NO INPUT. It came from QA's measurement, they had not recorded which RGB
+     they used, and neither of us can reproduce it: `rgb(0, 100, 110)` gives
+     11.33, `#006272` gives 11.37, `#008080` gives 10.73. **Nothing rests on it
+     -- teal is not the floor and every candidate lands inside 7.42 to 13.70 --
+     and it is quoted here anyway, because it is this comment's own lesson
+     arriving one level further up: a figure written down without its input is
+     not a measurement, it is a rumour with decimals.** The teal in the sweep
+     test is `rgb(0, 100, 110)` and it is written there, so it can be checked. */
+  #sv-pc {
+    position: fixed; top: 10px; right: 10px; z-index: 2147483000;
+    display: flex; gap: 4px; align-items: center;
+    padding: 4px; border-radius: 10px;
+    background: rgba(17, 17, 19, 0.82);
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
+    font: 600 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    /* The strip sits over somebody else's slide; text selection on it is only
+       ever an accident of a mis-tap. */
+    -webkit-user-select: none; user-select: none;
+  }
+  /* 🔴 44px TALL, EVERYWHERE, AND THAT IS EH'S RULING RATHER THAN A GUESS
+     (2026-09-02). It was 34px, which passes WCAG 2.2 SC 2.5.8 (24px) and is
+     under Apple's 44pt guidance, so there was no standard to appeal to: it is a
+     judgement about a device and he owns the device. ⚠️ HE WAS OFFERED THE
+     TOUCH-ONLY VARIANT -- 44 on the iPad, 34 on the laptop -- AND DID NOT TAKE
+     IT. So no media query below may carry a `height` for this button; one size
+     is simpler to reason about and to test, which is the reason he gave by
+     choosing it. `test_one_height_everywhere_and_no_breakpoint_may_take_it_back`
+     fails if a breakpoint ever sets one.
+
+     ⚠️ `min-width` is NOT part of that ruling and was deliberately left where it
+     was. He answered about the buttons being 34px TALL; raising the width to 44
+     by symmetry would be an inference, not his answer, and 44x40 is what he
+     asked for. */
+  #sv-pc .sv-pc-b {
+    min-width: 40px; height: 44px; padding: 0 9px;
+    border: 0; border-radius: 7px; cursor: pointer;
+    background: rgba(255, 255, 255, 0.13);
+    color: #fff;
+    font: inherit; letter-spacing: 0.02em;
+  }
+  #sv-pc .sv-pc-b:hover:not(:disabled) { background: rgba(255, 255, 255, 0.26); }
+  #sv-pc .sv-pc-b:active:not(:disabled) { background: rgba(255, 255, 255, 0.34); }
+  /* A visible focus ring, because the buttons are reachable by keyboard and the
+     background they sit on is not the page's. */
+  #sv-pc .sv-pc-b:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
+  #sv-pc .sv-pc-rate { min-width: 52px; background: rgba(255, 255, 255, 0.22); }
+  /* 🔴 THE SAME VISIBLE WORD AS THE READER'S OWN STRIP, and it is here for
+     consistency rather than because EH was looking at this surface: he asked for
+     the speed pull-down to say "speed", and shipping that on one of the two
+     pickers this project has is how two controls end up disagreeing about what
+     they are. `TheTwoStripsUseTheSameWORDS` fails if they drift.
+
+     🔴 44px, and for the same structural reason as the reader's copy: this is a
+     flex item in the row, so a shorter one would let the row fall under EH's
+     ruling. The colour is the strip's own white; nothing new enters the
+     palette. */
+  #sv-pc .sv-pc-lab {
+    display: flex; align-items: center; gap: 4px; height: 44px;
+    padding-left: 4px; color: #fff; font: inherit; cursor: pointer;
+  }
+  /* Disabled means "this lecture forbids seeking", which is a fact worth
+     showing rather than hiding: the title says why.
+
+     🔴 THE DISABLED INK DOES NOT MEET AA AND IS THE ONE FIGURE HERE THAT
+     DOES NOT. WCAG 1.4.3 exempts a disabled control, so nothing fails, and the
+     title carries the meaning for anyone who cannot read the grey. Said plainly
+     because the number it replaced claimed 4.6 and no layer of this stack
+     produces 4.6. */
+  #sv-pc .sv-pc-b:disabled { opacity: 1; color: rgba(255, 255, 255, 0.45); cursor: not-allowed; }
+  /* 🔴 WIDTH ONLY. NO `height` MAY EVER GO IN HERE -- see the ruling above:
+     one size on every device is the thing EH chose, over the offer of a
+     touch-only breakpoint. This block narrows a crowded strip on a small
+     screen; it does not shrink the target he sized with his thumb. */
+  @media (max-width: 560px) {
+    #sv-pc { top: 6px; right: 6px; gap: 3px; }
+    #sv-pc .sv-pc-b { min-width: 36px; padding: 0 6px; }
+    /* WIDTH ONLY, exactly as above: the gap and the padding go, the height
+       never does. */
+    #sv-pc .sv-pc-lab { gap: 3px; padding-left: 2px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    #sv-pc .sv-pc-b { transition: background 120ms ease; }
+  }
+</style>
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- holding the LIVE player ----------------------------------
+     🔴 The export hands the player to `onPlayerInit` and DROPS IT:
+     `(player);` at index.html:62, in all 38 packages. So the handle has to be
+     taken on the way past, which means wrapping `PresentationPlayer.start`
+     before the page's own inline script runs. This file is injected after
+     `player.js` has loaded and before that script, which is the only window.
+
+     ⚠️ DO NOT try to get it by calling `PresentationPlayer.start()` again on a
+     booted page. That builds a SECOND player which never becomes current: its
+     `currentSlideIndex()` stays -1 and `gotoTimestamp` does nothing, which
+     reads exactly like "seeking is disabled in this export" and is not. The
+     instances stack up. Measured 2026-09-01; the control that settled it was
+     `settings().navigation().navigationType()` returning "free". */
+  var player = null;
+  var waiting = [];
+
+  function adopt(p) {
+    if (player || !p) return;
+    player = p;
+    var q = waiting;
+    waiting = [];
+    for (var i = 0; i < q.length; i++) {
+      try { q[i](player); } catch (e) {}
+    }
+  }
+
+  function whenReady(fn) {
+    if (player) { try { fn(player); } catch (e) {} return; }
+    waiting.push(fn);
+  }
+
+  function wrapStart() {
+    var P = window.PresentationPlayer;
+    if (!P || typeof P.start !== "function" || P.__svWrapped) return false;
+    var real = P.start;
+    P.start = function () {
+      var args = Array.prototype.slice.call(arguments);
+      /* The FIRST function argument, not the fourth. It is the fourth in every
+         package measured, and taking it by shape rather than by position costs
+         nothing and survives an exporter that adds a parameter. */
+      for (var i = 0; i < args.length; i++) {
+        if (typeof args[i] === "function") {
+          args[i] = (function (orig) {
+            return function (p) {
+              /* 🔴 Ours first and THEIRS ALWAYS. The export's callback removes
+                 the preloader; if our line threw and took the call with it,
+                 the reader would watch a spinner forever. */
+              try { adopt(p); } catch (e) {}
+              return orig.apply(this, arguments);
+            };
+          })(args[i]);
+          break;
+        }
+      }
+      return real.apply(this, args);
+    };
+    P.__svWrapped = true;
+    return true;
+  }
+
+  /* ---------- where we are, through PUBLIC names only ------------------
+     🔴 READ THE POSITION THROUGH THESE METHODS AND NEVER THROUGH THE OBJECT'S
+     FIELDS. `timestamp()`'s minified fields differ between exporter versions:
+     `{Ic, Yt, xi}` on 9.3.4 and `{Ic, Xt, yi}` on 9.7.0.23. Reading `xi` would
+     have worked on three packages and returned `undefined` on twenty-three,
+     which is the silent-wrong failure this project refuses. `slideIndex()`,
+     `stepIndex()` and `timeOffset()` are on both. */
+  function controller() {
+    try { return player.view().playbackController(); } catch (e) { return null; }
+  }
+
+  function slides() {
+    try { return player.presentation().slides(); } catch (e) { return null; }
+  }
+
+  function position() {
+    var pc = controller();
+    if (!pc) return null;
+    try {
+      var ts = pc.clock().timestamp();
+      return { slide: ts.slideIndex(), step: ts.stepIndex(), time: ts.timeOffset() };
+    } catch (e) { return null; }
+  }
+
+  /* 🔴 ONE TRY PER SLIDE, NOT ONE FOR THE DECK, and this was a real defect
+     rather than tidying. `duration()` THROWS on a slide the player is still
+     building: measured on one real narrated package, slide index 2 raised
+     "Cannot read properties of null" while the other seventeen answered
+     normally. The old shape wrapped the whole loop, so one transient throw
+     discarded every good number, `durations()` returned null, and `skip()`
+     returned early: EVERY SKIP BUTTON DID NOTHING, silently, for as long as
+     that lasted. QA saw exactly that twice and put it down to reading the
+     clock in the same tick.
+
+     ⚠️ AN UNKNOWN DURATION IS `null`, NOT 0, and the difference matters:
+     a slide really can be zero seconds long (a package has more slides than
+     narration files), and `seekTarget` walks across a zero. Walking across a
+     slide whose length we do not know is how a skip lands somewhere nobody
+     asked for. */
+  function durations() {
+    var sl = slides();
+    if (!sl) return null;
+    var n;
+    try { n = sl.count(); } catch (e) { return null; }
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var d;
+      try { d = sl.getSlide(i).duration(); } catch (e) { d = null; }
+      out.push(typeof d === "number" && isFinite(d) && d >= 0 ? d : null);
+    }
+    return out;
+  }
+
+  function seekingAllowed() {
+    /* An export configured for an LMS can ship with skipping switched off, and
+       `gotoTimestamp` then does nothing and says nothing. Asking the setting is
+       the only way to tell that from a working seek, because the call returns
+       undefined either way. */
+    try {
+      return player.presentation().settings().navigation().navigationType() === "free";
+    } catch (e) { return false; }
+  }
+
+  /* ---------- the arithmetic, kept pure so it can be tested -------------
+     🔴 `gotoTimestamp` DOES NOT CLAMP. Measured: 30 was accepted on a slide
+     whose duration is 40.2, and so was a value past the end. The caller clamps,
+     and this is the caller.
+
+     A narrated package has no single timeline: it is one audio per slide, so
+     "back 15 seconds" from three seconds in has to cross into the previous
+     slide and land near its end. Both loops move the slide index every time
+     round, so neither can spin on a slide of zero duration -- and slides of
+     zero duration are real, because a package has 16 slides and 14 audio
+     elements. */
+  function seekTarget(list, slide, time, delta) {
+    if (!list || !list.length) return null;
+    var last = list.length - 1;
+    if (!(slide >= 0)) slide = 0;
+    if (slide > last) slide = last;
+    var t = (typeof time === "number" && isFinite(time) ? time : 0) + delta;
+    /* A `null` in the deck is a slide whose length we do not know yet, and it
+       is IMPASSABLE: crossing it would mean subtracting a number we do not
+       have. Both loops stop at its edge and the skip does the part it can
+       prove, which is better than the two alternatives -- doing nothing, and
+       landing somewhere arbitrary. */
+    while (t < 0 && slide > 0 && typeof list[slide - 1] === "number") {
+      slide -= 1;
+      t += list[slide];
+    }
+    while (typeof list[slide] === "number" && t > list[slide] && slide < last
+           && typeof list[slide + 1] === "number") {
+      t -= list[slide];
+      slide += 1;
+    }
+    if (t < 0) t = 0;
+    /* No top clamp when this slide's own length is unknown: `gotoTimestamp`
+       accepts a time past the end (measured), and refusing to move at all is
+       the behaviour being fixed. */
+    if (typeof list[slide] === "number" && t > list[slide]) t = list[slide];
+    return { slide: slide, time: t };
+  }
+
+  /* 🔴 A RESTORE IS NOT A SKIP, and reusing `seekTarget` for it would be the
+     plausible mistake rather than the safe reuse. A skip is MEANT to cross a
+     slide boundary: "back 15" from three seconds in has to land near the end of
+     the slide before. A restore is meant to land where the reader already was,
+     so a time that overshoots this slide's NEW length is pinned to the end of
+     THIS slide and never carried into the next one.
+
+     ⚠️ The overshoot should not arise at all when the arithmetic is right: the
+     server divides every timing by the rate, so a slide's duration and a time
+     inside it shrink by the SAME factor. It is guarded anyway, because the thing
+     it prevents -- a reader who changed speed and arrived one slide further on
+     -- is exactly the off-by-one that reads as "the speed control is broken".
+
+     🟢 AN UNKNOWN DURATION IS LEFT UNCLAMPED, which is the opposite of
+     `seekTarget`'s rule and is right for the opposite reason: `seekTarget`
+     refuses to CROSS a slide it cannot measure, and this never crosses one at
+     all. `gotoTimestamp` accepts a time past the end (measured), so the worst
+     case is landing late on the correct slide rather than not landing.
+
+     🔴 THERE IS NO LOOP IN HERE. A restore cannot hang, whatever the deck says,
+     which is the property a zero-duration slide makes worth stating. */
+  function restoreTarget(list, slide, time) {
+    if (!list || !list.length) return null;
+    if (typeof slide !== "number" || !isFinite(slide)) return null;
+    var last = list.length - 1;
+    slide = Math.floor(slide);
+    if (slide < 0) slide = 0;
+    if (slide > last) slide = last;
+    var t = (typeof time === "number" && isFinite(time) && time > 0) ? time : 0;
+    if (typeof list[slide] === "number" && t > list[slide]) t = list[slide];
+    return { slide: slide, time: t };
+  }
+
+  /* ---------- the rate ------------------------------------------------
+     🔴 THERE IS NO PLAYER API FOR SPEED. Verified across seventeen
+     reachable objects: no `rate`, `speed`, `tempo`, `scale`, `factor` or
+     `multipl` anywhere, and `soundController()` carries volume and mute and
+     nothing else. So the rate is set on the `<audio>` elements ourselves, which
+     is the only route left rather than the one that was preferred.
+
+     🔴 AND `load()` RESETS IT TO 1. Measured: set 1.5, call `load()`, read
+     back 1. The player loads narration lazily -- every element is
+     `preload="none"` -- so a rate applied once, at click time, is silently
+     discarded the moment the next slide's audio actually loads. That is why
+     this re-applies on events rather than once.
+
+     ⚠️ The elements are per SLIDE and there are fewer of them than slides (16
+     slides, 14 audio in one package), so never index audio by slide number.
+     Every element gets the rate; the ones with nothing to play do not care. */
+  var RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3];
+
+  /* 🔴 THE VISIBLE WORD, AND IT IS SPELLED IN TWO FILES, WHICH IS THE WHOLE
+     RISK. The reader's own strip declares the same constant, and nothing but a
+     test joins them: `TheTwoStripsUseTheSameWORDS` reads both files and fails
+     when they differ. That is the shape this project has already been bitten by
+     twice with the rate LIST itself. */
+  var RATE_LABEL = "Speed";
+
+  /* The reader's saved speed, written in by the server as this page is sent.
+     There is nowhere else it could come from: an opaque origin has no
+     localStorage, cannot read a cookie and cannot call the API.
+
+     🟢 AN UNFILLED TOKEN NEEDS NO GUARD. `parseFloat("@@PLAYBACK_RATE@@")`
+     is NaN and NaN is not in `RATES`, so a page served by a copy that does not
+     do the substitution -- an older kit, a package opened straight off disk --
+     falls back to 1 by construction rather than by a check somebody has to
+     remember to write. */
+  var rate = 1;
+  (function () {
+    var saved = parseFloat("@@PLAYBACK_RATE@@");
+    if (RATES.indexOf(saved) >= 0) rate = saved;
+  })();
+
+  /* One element, three writes, each in its own try: a browser that refuses
+     one of them must not cost the reader the other two.
+     🟢 `defaultPlaybackRate` is what `load()` resets `playbackRate` TO. The
+     export sets a new `src` before every narration, which is a load, and a
+     load used to drop the rate to 1 until the next event put it back. Setting
+     the default means the reset lands on the reader's speed, not on 1;
+     measured in the iOS Simulator (probe v3, 2026-09-06). */
+  function applyTo(el) {
+    try { el.playbackRate = rate; } catch (e) {}
+    try { el.defaultPlaybackRate = rate; } catch (e) {}
+    /* Speech that rises in pitch is unusable, and the default is already
+       what we want on every current browser; set it anyway so a browser
+       that defaults the other way does not make this unusable quietly. */
+    try { el.preservesPitch = true; } catch (e) {}
+  }
+
+  function applyRate() {
+    var list = document.getElementsByTagName("audio");
+    for (var i = 0; i < list.length; i++) applyTo(list[i]);
+    /* 🔴 AND THE ELEMENTS THAT ARE NOT IN THE DOCUMENT AT ALL, which on a
+       phone is every element that ever plays. See `reachDetached`. */
+    for (var k = 0; k < reached.length; k++) applyTo(reached[k]);
+  }
+
+  function showRate(v) {
+    rate = v;
+    applyRate();
+    /* ⚠️ `.value`, not `.textContent`: this is a `<select>` since 2026-09-03.
+       Writing textContent into a select would append a stray text node and
+       leave the shown value stale, which is silent rather than broken. */
+    if (label) label.value = String(v);
+  }
+
+  /* 🔴 ONLY A CLICK TELLS THE PAGE AROUND US ANYTHING, and the split
+     between this and `showRate` is exactly that. Drawing the strip also has to
+     apply a rate, and if THAT posted, a package whose saved rate failed to
+     arrive would immediately announce the default and overwrite the reader's
+     real setting with 1. A control that quietly resets a preference on load is
+     worse than one that forgets it. Found by a test, not by reasoning. */
+  function setRate(v) {
+    showRate(v);
+    try { window.parent.postMessage({ kind: "sv-player-rate", rate: v }, "*"); } catch (e) {}
+  }
+
+  /* 🔴 CAPTURE PHASE, because media events DO NOT BUBBLE. A listener on
+     `document` in the bubbling phase would never see `play` or `loadeddata` on
+     an `<audio>`, and the rate would appear to work until the second slide.
+     Listening this way also covers elements the player creates later, which a
+     one-shot loop over today's elements does not. */
+  var RATE_EVENTS = ["play", "loadeddata", "loadedmetadata", "canplay", "ratechange"];
+
+  function keepRate(ev, el) {
+    if (ev === "ratechange" && el.playbackRate === rate) return;
+    applyTo(el);
+  }
+
+  function watchMedia() {
+    RATE_EVENTS.forEach(function (ev) {
+      try {
+        document.addEventListener(ev, function (e) {
+          if (!e || !e.target || e.target.tagName !== "AUDIO") return;
+          keepRate(ev, e.target);
+        }, true);
+      } catch (e) {}
+    });
+  }
+
+  /* ---------- the element that is not in the document ---------------------
+
+     🔴🔴 ON A PHONE THE NARRATION NEVER PLAYS THROUGH AN ELEMENT IN THE
+     DOCUMENT, and everything above this line is scoped to the document.
+     EH, 2026-09-06: "Neither the voice speed change nor the whole lecture
+     speed change works" on iOS, iPhone and iPad alike, while both work on
+     every desktop browser.
+
+     Read out of the export's own `player.js`, and it is a deliberate design
+     rather than a bug of theirs: a phone lets a media element play only
+     after a touch has unlocked THAT element, and the deck cannot ask for a
+     touch before every slide. So on a mobile browser (`il` in the minified
+     source, `Zj && !gl`) it creates a pool of twenty `<audio>` elements with
+     `document.createElement`, NEVER APPENDS THEM, unlocks all twenty on the
+     first tap with a play/pause each, and then for every narration takes one
+     from the pool, points its `src` at the clip and swaps it in behind the
+     wrapper (`rH`, `sH`, `Hl`). The `<audio id="snd…">` in the markup, the
+     one every desktop browser plays, is never played on a phone at all.
+
+     Two consequences, and both were measured in the iOS Simulator before a
+     line of this was written (probe v3, 2026-09-06):
+       - `getElementsByTagName` cannot see a node that is not in the tree, so
+         `applyRate` had nothing to apply to;
+       - a detached node's event path is only itself, so the capture listeners
+         on `document` never fired: `docSaw: 0` across a whole clip, on every
+         one of the five events `watchMedia` listens for.
+
+     🟢 THE ONE PLACE EVERY ELEMENT PASSES THROUGH, attached or not, is
+     `HTMLMediaElement.prototype.play`. Wrapping it once gives us the element
+     in hand at the moment that matters: the rate goes on before the vendor's
+     own call runs, the element is REMEMBERED so a later pick from the strip
+     can reach it (`applyRate`), and the element gets its own copies of the
+     listeners the document would have supplied. Those copies stand down when
+     the element IS in the document, so an event is handled exactly once by
+     whichever route can see it; a doubled `ended` would advance two slides.
+
+     ⚠️ Same shape as the diagnostic wrapper `watchPlayCalls`, same
+     discipline: the vendor's promise is returned untouched and nothing here
+     can throw into their call. Separate guard flag, so the two wrappers
+     stack in either order. Measured ratios with this in place, all on a
+     detached element: 1.96 at 2, 1.50 after a live change to 1.5, 1.96 after
+     the src swap the deck does between slides. */
+  var reached = [];
+  /* Bounded, because a page-long array of media elements is a leak with a
+     name. The deck unlocks 20 narration elements and 30 more at the first
+     tap and then reuses them, so this is never reached in practice; an
+     element that does fall off the end keeps its listeners and only loses
+     the live pick. */
+  var REACHED_MAX = 128;
+
+  function inDocument(el) {
+    try { return !!(el && el.ownerDocument && el.ownerDocument.contains(el)); } catch (e) { return false; }
+  }
+
+  /* One listener per event, doing what the document's would have done:
+     keep the rate, and the narration bookkeeping from `watchNarration`.
+     `inDocument` is checked at EVENT time, not at registration: an element
+     that is in the tree when it fires is the document's, and a doubled
+     `ended` would advance two slides. */
+  function remember(el) {
+    if (el.__svReached) return;
+    el.__svReached = true;
+    reached.push(el);
+    if (reached.length > REACHED_MAX) reached.shift();
+    RATE_EVENTS.concat(["ended"]).forEach(function (ev) {
+      try {
+        el.addEventListener(ev, function () {
+          if (inDocument(el)) return;
+          if (ev === "ended") { try { narrationEnded(el); } catch (x) {} return; }
+          keepRate(ev, el);
+          if (ev === "play") noteSlide(el);
+          if (CAP_ON && (ev === "play" || ev === "loadedmetadata")) {
+            try { captionDetached(el); } catch (x) {}
+          }
+        }, false);
+      } catch (e) {}
+    });
+  }
+
+  function reachDetached() {
+    try {
+      var M = window.HTMLMediaElement && window.HTMLMediaElement.prototype;
+      if (!M || typeof M.play !== "function" || M.__svReachWrapped) return false;
+      var real = M.play;
+      M.play = function () {
+        try {
+          if (this && this.tagName === "AUDIO") {
+            applyTo(this);
+            remember(this);
+          }
+        } catch (e) {}
+        return real.apply(this, arguments);
+      };
+      M.__svReachWrapped = true;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /* ---------- captions -------------------------------------------------
+
+     🔴 THE CUES ARE TIMED IN HERE AND DRAWN OUT THERE, and neither half is a
+     preference. **Timing** has to sit beside the `<audio>` element, because that
+     element's own clock is the only one that survives a pause, a seek and a
+     playback rate: a text track with `mode = "hidden"` gives us `cuechange`
+     against it for nothing, and re-deriving that from a polled slide time would
+     be a second clock to keep honest. **Drawing** has to sit in the reader's
+     document, because EH ruled the captions go UNDER the frame with the
+     controls, and the strip under the frame is the reader's document, not this
+     one.
+
+     🔴 NOTHING HERE IS EVER SET TO `"showing"`. That is the mode that makes the
+     browser paint cues itself, over the picture, which is the one placement he
+     has now refused twice. `"hidden"` fires the events and paints nothing.
+
+     🟢 NO JOIN ARITHMETIC, AND THAT IS THE POINT OF READING THE `<source>`.
+     A caption file is named after the MP3 it was aligned from
+     (`captions.py`: `name.replace(".mp3", ".vtt")`), so the element's own source
+     answers "which file" exactly. ⚠️ **The obvious alternative is off by one and
+     the DOM says so out loud**: in a real narrated package the first
+     element is `<audio id="snd0_5dcd8c">` and it contains `data/sound1.mp3`.
+     Indexing captions by the element's position, or by a slide number, is a
+     whole lecture one clip out of step. Reading the source cannot be off by
+     one, because there is no arithmetic in it.
+
+     🔴 AND ON A PHONE THE ELEMENT THAT PLAYS IS NOT IN THE DOCUMENT (the
+     speed fix's registry, `remember` above, is how it is reached; the pooled
+     half is `captionDetached` below). The marked-up elements are still what
+     is COUNTED, because they are the lecture's clips; the pooled element is
+     how a phone plays them. */
+  var CAPTION_DIR = "captions";
+  /* 🔴 A CAP ON WHAT WE POST OUT, and it is not this side's real defence --
+     the reader's page caps it again on arrival, because that is the side that
+     cannot trust this one. It is here because the longest cue in the entire
+     corpus is **89 characters** (4,876 cues across 395 files, measured
+     2026-09-03), so 300 is generous headroom for a sentence and still a bound. */
+  var CUE_MAX = 300;
+  var CAP_ON = false;
+
+  function tell(msg) {
+    if (!embedded()) return false;
+    try { window.parent.postMessage(msg, "*"); return true; } catch (e) { return false; }
+  }
+
+  /* 🔴 DERIVED FROM OUR OWN PATH RATHER THAN HANDED IN BY THE SERVER, and the
+     trade is worth stating. A `@@CAPTIONS_BASE@@` token would be explicit, and
+     it would also mean a server change and a restart for every iteration on a
+     file that otherwise deploys the moment it is saved. The derivation is one
+     regexp over a route this project owns: a package is served from
+     `/m/<CODE>/packages/<PART>/index.html` and its captions from
+     `/m/<CODE>/captions/<PART>/`.
+
+     🟢 `location.pathname` IS readable here. The opaque origin makes
+     `location.origin` the string `"null"` and blocks reading anything ACROSS the
+     boundary; a document reading its own path is not a cross-origin read.
+
+     ⚠️ It fails towards no captions rather than towards a wrong fetch: a path
+     that does not have that shape (a package opened off disk, a future route)
+     returns null and the reader is told there are none, which is true of what
+     we can find. NOT decoded on purpose -- an encoded part name has to stay
+     encoded to be fetched. */
+  function captionsBase() {
+    var path;
+    try { path = String((window.location && window.location.pathname) || ""); }
+    catch (e) { return null; }
+    var m = /^(.*)\/packages\/([^\/]+)\/[^\/]*$/.exec(path);
+    if (!m) return null;
+    return m[1] + "/" + CAPTION_DIR + "/" + m[2] + "/";
+  }
+
+  /* The clip's caption file name, from the element's own source. `null` means
+     this element is not something we can caption, which is different from a
+     clip whose captions are missing: the first is a shape we do not recognise,
+     the second is an honest 404 and is COUNTED. */
+  function clipVtt(el) {
+    var src = null;
+    try {
+      var s = el.querySelector ? el.querySelector("source") : null;
+      src = (s && s.getAttribute("src")) || el.getAttribute("src") || null;
+    } catch (e) { return null; }
+    if (!src) return null;
+    var name = String(src).split("?")[0].split("#")[0];
+    name = name.slice(name.lastIndexOf("/") + 1);
+    /* Deliberately narrow: the exporter writes `soundN.mp3` in all 38 packages,
+       and a name outside this shape is one nobody has measured. */
+    if (!/^[A-Za-z0-9._-]+\.mp3$/i.test(name)) return null;
+    return name.replace(/\.mp3$/i, ".vtt");
+  }
+
+  /* 🔴 OUR OWN PARSER, because `<track>` CANNOT LOAD HERE. Measured: a
+     `<track>` element in this document needs `crossorigin` on the media to read
+     a same-server file from an opaque origin, and `crossorigin` has to be set
+     before resource selection -- which is `player.js`'s business and would force
+     a reload of the narration. `fetch` and `addTextTrack` both work, so the file
+     is fetched and the cues are built by hand. This is the one place in the
+     project that parses WebVTT; `to_vtt` in `captions.py` writes it. */
+  function vttTime(v) {
+    var m = /^(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})$/.exec(String(v).trim());
+    if (!m) return null;
+    var h = m[1] ? parseInt(m[1], 10) : 0;
+    return h * 3600 + parseInt(m[2], 10) * 60 + parseInt(m[3], 10)
+      + parseInt((m[4] + "00").slice(0, 3), 10) / 1000;
+  }
+
+  function parseVtt(text) {
+    var out = [];
+    if (!text) return out;
+    var lines = String(text).replace(/\r\n?/g, "\n").split("\n");
+    for (var i = 0; i < lines.length; i++) {
+      var arrow = lines[i].indexOf("-->");
+      if (arrow < 0) continue;
+      var a = vttTime(lines[i].slice(0, arrow));
+      /* Anything after the end stamp is cue settings (`align`, `line`, `position`).
+         They place a cue in the video's own painting area, which is exactly what
+         we are not using, so they are read and dropped. */
+      var b = vttTime(lines[i].slice(arrow + 3).trim().split(/\s+/)[0]);
+      var body = [];
+      var j = i + 1;
+      for (; j < lines.length && lines[j].trim() !== ""; j++) body.push(lines[j].trim());
+      i = j;
+      /* 🔴 A cue with no length can never be the active one, so it is dropped
+         here rather than added and never shown. `end > start` also throws out a
+         reversed pair, which no writer of ours produces and a hand-edited file
+         could. */
+      if (a === null || b === null || !(b > a)) continue;
+      /* The source wraps its own text at about forty characters, which is right
+         for a fixed caption area and wrong for a box whose width the reader
+         drags. Joined here so the box wraps to its own measure. */
+      var t = body.join(" ").replace(/\s+/g, " ").trim();
+      if (t) out.push({ start: a, end: b, text: t });
+    }
+    return out;
+  }
+
+  function activeText(track) {
+    var cs = null;
+    try { cs = track && track.activeCues; } catch (e) { return ""; }
+    if (!cs || !cs.length) return "";
+    var bits = [];
+    for (var i = 0; i < cs.length; i++) {
+      var t = cs[i] && cs[i].text;
+      if (t) bits.push(String(t));
+    }
+    return bits.join(" ").replace(/\s+/g, " ").trim().slice(0, CUE_MAX);
+  }
+
+  function sayCue(track) {
+    /* 🔴 The gate is here and not at the listener, so a reader who switches
+       captions off stops being sent text immediately, without us having to take
+       tracks apart and put them back together. The tracks stay attached and
+       `hidden`, which is also what makes switching back ON instant and what lets
+       the current cue be re-sent below rather than waited for. */
+    if (!CAP_ON) return false;
+    return tell({ kind: "sv-player-cue", text: activeText(track) });
+  }
+
+  /* ONE track per element, FILLED as many times as the element changes clip.
+     A marked-up element holds one clip for its whole life, so it is filled
+     once. 🔴 A POOLED ELEMENT ON A PHONE IS REUSED: the deck points the same
+     detached element at `sound1.mp3`, then `sound7.mp3`, then whatever comes
+     next, and a track built once for the first clip would time the first
+     clip's words over every clip after it. `addTextTrack` cannot be undone, so
+     the track stays and its CUES are swapped: emptied with `removeCue`, then
+     refilled. Measured in the iOS Simulator (probe v5, 2026-09-06): on a
+     detached, playing element the three old cues came out, two new ones went
+     in, and the new ones fired at their times. */
+  function fillTrack(el, cues) {
+    var track = el.__svCapTrack;
+    if (!track) {
+      try { track = el.addTextTrack("captions", "Captions", "en"); } catch (e) { return null; }
+      if (!track) return null;
+      var fire = function () { try { sayCue(track); } catch (e) {} };
+      try { track.addEventListener("cuechange", fire, false); }
+      catch (e) { try { track.oncuechange = fire; } catch (x) {} }
+      el.__svCapTrack = track;
+    }
+    /* `cues` is null while the track is disabled, so hidden first, then empty. */
+    try { track.mode = "hidden"; } catch (e) {}
+    try {
+      var old = track.cues;
+      while (old && old.length) track.removeCue(old[0]);
+    } catch (e) {}
+    var added = 0;
+    for (var i = 0; i < cues.length; i++) {
+      try {
+        track.addCue(new window.VTTCue(cues[i].start, cues[i].end, cues[i].text));
+        added += 1;
+      } catch (e) {}
+    }
+    el.__svCapCues = added;
+    return track;
+  }
+
+  /* 🟢 FETCHED ONCE PER FILE, however many elements ask. On the desktop each
+     clip has its own element and the cache changes nothing. On a phone the
+     marked-up elements are fetched for at switch-on (they are what the
+     coverage sentence counts) and the pooled element that actually plays asks
+     for the same file a moment later: it is answered from here, or joins the
+     fetch already in flight, and never costs a second request. A file the
+     server does not have is remembered as `null` for the same reason the
+     marked-up element's `__svCapMissing` is. */
+  var cueCache = {};
+  function fetchCues(url, name, cb) {
+    var hit = cueCache[name];
+    if (hit && hit.done) { cb(hit.cues); return false; }
+    if (hit) { hit.waiting.push(cb); return false; }
+    hit = cueCache[name] = { done: false, cues: null, waiting: [cb] };
+    function settle(cues) {
+      hit.done = true;
+      hit.cues = cues;
+      var w = hit.waiting;
+      hit.waiting = [];
+      for (var i = 0; i < w.length; i++) { try { w[i](cues); } catch (e) {} }
+    }
+    var ok = false;
+    try {
+      window.fetch(url, { credentials: "omit" }).then(function (r) {
+        ok = !!(r && r.ok);
+        return ok ? r.text() : "";
+      }).then(function (body) {
+        var cues = ok ? parseVtt(body) : null;
+        settle(cues && cues.length ? cues : null);
+      })["catch"](function () { settle(null); });
+    } catch (e) { settle(null); }
+    return true;
+  }
+
+  /* 🔴 THE ELEMENT THAT PLAYS ON A PHONE IS NOT IN THE DOCUMENT, and until
+     2026-09-06 captions were as blind to it as the speed was: `loadCaptions`
+     walks `getElementsByTagName`, which cannot see a detached node, so the
+     cues were timed on a marked-up element that never plays there. EH, the
+     same day, after the speed fix: "there are no captions on mobile."
+
+     This is the pooled element's half. It is reached from the registry the
+     speed fix keeps (`remember`, below): on `play` and `loadedmetadata` of an
+     element that is NOT in the tree, read the clip's name off its own `src`
+     (the deck sets the marked-up element's resolved URL on it, so
+     `clipVtt` reads `sound7.mp3` out of it exactly as it would from a
+     `<source>`), and if that is not the clip the element was last timed for,
+     fill its track with that clip's cues. `__svCapName` is what makes a
+     reused element re-time itself and an unchanged one do nothing.
+
+     ⚠️ The name is checked AGAIN when the cues arrive: the deck can move the
+     element on to the next clip while this one's file is still in flight,
+     and a late answer must not time the previous clip's words over the new
+     one. Counted nowhere: the coverage sentence counts clips, and a pooled
+     element is transport, not a clip. */
+  function captionDetached(el) {
+    var base = captionsBase();
+    if (!base) return false;
+    var name = clipVtt(el);
+    if (!name) return false;
+    if (el.__svCapName === name) return false;
+    el.__svCapName = name;
+    fetchCues(base + encodeURIComponent(name), name, function (cues) {
+      if (el.__svCapName !== name) return;
+      fillTrack(el, cues || []);
+    });
+    return true;
+  }
+
+  /* Attach whatever is missing and report what the lecture actually has.
+     Idempotent: called again when captions are switched back on, it fetches
+     nothing and re-reports, which is how the box fills in straight away. */
+  function loadCaptions() {
+    var list = document.getElementsByTagName("audio");
+    var base = captionsBase();
+    var haveFetch = false;
+    try { haveFetch = typeof window.fetch === "function"; } catch (e) {}
+    var haveCue = false;
+    try { haveCue = typeof window.VTTCue === "function"; } catch (e) {}
+    /* 🔴 THREE DIFFERENT NEGATIVES AND THE READER IS OWED THE DIFFERENCE.
+       "This lecture has none" is a fact about the course; "this browser cannot"
+       is a fact about the machine; and a path we cannot recognise is a fact
+       about us. Collapsing them into one grey box is how a working feature gets
+       reported as missing captions. */
+    if (!haveFetch || !haveCue) return say("unsupported", 0, 0);
+    if (!base) return say("none", 0, 0);
+
+    var clips = 0, done = 0, captioned = 0, pending = [];
+    for (var i = 0; i < list.length; i++) {
+      var el = list[i];
+      var name = clipVtt(el);
+      if (!name) continue;
+      clips += 1;
+      if (el.__svCapTrack) {
+        if (el.__svCapCues > 0) captioned += 1;
+        try { el.__svCapTrack.mode = "hidden"; } catch (e) {}
+        /* Already timed, and possibly mid-cue right now. ONLY IF THERE IS
+           TEXT: an empty cue posted here would be indistinguishable from
+           "silence", and it would wipe the coverage sentence the reader's page
+           is about to draw for a partly-captioned lecture. */
+        try { if (activeText(el.__svCapTrack)) sayCue(el.__svCapTrack); } catch (e) {}
+        continue;
+      }
+      /* 🔴 ASKED ONCE. Found by its own test: the missing flag was being SET
+         and never READ, so every toggle of the button re-requested every clip
+         the server had already said it does not have. It still counts towards
+         `clips`, because a clip with no captions is a clip -- that is the number
+         the coverage sentence is built from. */
+      if (el.__svCapMissing) continue;
+      pending.push([el, base + encodeURIComponent(name), name]);
+    }
+    try { loadDetachedCaptions(); } catch (e) {}
+    if (!pending.length) return say(captioned > 0 ? "ready" : "none", clips, captioned);
+
+    var total = pending.length;
+    function settled(el, cues) {
+      if (cues && cues.length) {
+        if (fillTrack(el, cues)) captioned += 1;
+      } else {
+        /* 🔴 A MISSED CLIP IS MARKED, so switching captions off and on again
+           does not re-request a file the server has already said is not there.
+           117 clips were refused corpus-wide and four lectures produced nothing
+           at all, so a partly-captioned lecture is the ordinary case here, not
+           the edge. */
+        el.__svCapTrack = null;
+        el.__svCapCues = 0;
+        el.__svCapMissing = true;
+      }
+      done += 1;
+      if (done === total) say(captioned > 0 ? "ready" : "none", clips, captioned);
+    }
+    for (var k = 0; k < pending.length; k++) {
+      (function (el, url, name) {
+        fetchCues(url, name, function (cues) { settled(el, cues); });
+      }(pending[k][0], pending[k][1], pending[k][2]));
+    }
+    return true;
+  }
+
+  /* The pooled elements' side of a switch-on. An element that is mid-clip
+     when the reader asks for captions has never been timed (the listener
+     that would have timed it is gated on `CAP_ON`), so it is timed now; one
+     already timed for its current clip is re-armed and, if it is mid-cue,
+     re-said, the same as the marked-up elements above. */
+  function loadDetachedCaptions() {
+    var timed = 0;
+    for (var r = 0; r < reached.length; r++) {
+      var el = reached[r];
+      if (inDocument(el)) continue;
+      if (el.__svCapTrack && el.__svCapName && el.__svCapName === clipVtt(el)) {
+        try { el.__svCapTrack.mode = "hidden"; } catch (e) {}
+        try { if (activeText(el.__svCapTrack)) sayCue(el.__svCapTrack); } catch (e) {}
+        continue;
+      }
+      try { if (captionDetached(el)) timed += 1; } catch (e) {}
+    }
+    return timed;
+  }
+
+  function say(status, clips, captioned) {
+    return tell({
+      kind: "sv-player-captions",
+      status: status,
+      clips: clips,
+      captioned: captioned
+    });
+  }
+
+  function setCaptions(on) {
+    CAP_ON = !!on;
+    if (!CAP_ON) {
+      /* One empty cue, so the box under the frame clears rather than keeping a
+         sentence the reader has just switched off. The tracks are left alone. */
+      tell({ kind: "sv-player-cue", text: "" });
+      return false;
+    }
+    try { loadCaptions(); } catch (e) {}
+    return true;
+  }
+
+  /* An element the player builds later gets its captions the first time it
+     plays. The same reasoning as `watchMedia`: a one-shot loop over today's
+     elements is a bet on the exporter, and there are seven exporter versions. */
+  function watchNewMedia() {
+    ["play", "loadedmetadata"].forEach(function (ev) {
+      try {
+        document.addEventListener(ev, function (e) {
+          if (!CAP_ON || !e || !e.target || e.target.tagName !== "AUDIO") return;
+          var el = e.target;
+          if (el.__svCapTrack || el.__svCapMissing) return;
+          try { loadCaptions(); } catch (x) {}
+        }, true);
+      } catch (e) {}
+    });
+  }
+
+  /* ---------- the voice finishes, so the slide moves ---------------------
+
+     🔴 EH, 2026-09-03, answering the measurement: "if we advance the speed mid
+     slide, can we bring the slide to its end state (so this way the user sees
+     everything on the slide right away)? Then we can advance the slide once
+     the voice ends."
+
+     🟢 THE FIRST HALF NEEDS NOTHING BUILT, measured across both courses:
+     0 of 683 slide files carry any animation marker, 682 of 683 slides have a
+     single animation step, and presInfo`s per-slide `i.a` list is geometry
+     (ids, bounds and two transform matrices that are exact inverses) with no
+     time fields at all. A slide APPEARS COMPLETE and sits there while the
+     voice talks over it, so there is no end state to jump to.
+
+     🔴 WHY THE SECOND HALF IS THE WHOLE FEATURE. A slide ends on its own
+     TIMELINE, and that timeline is the same length as its narration: median
+     33 MILLISECONDS apart across 512 narrated slides, 493 of them within a
+     quarter second. So a faster voice never made a lecture shorter; it bought
+     silence. Measured: at 1.5x the corpus still takes 521 minutes and 174 of
+     them are a slide with nothing being said. `server/survey_slide_timing.py`
+     re-derives every number here.
+
+     ⚠️ ONLY ABOVE 1x, and that is a deliberate limit rather than caution.
+     At 1x the audio ends 33ms before the slide does, so advancing would be a
+     change nobody asked for on every slide of every lecture; and the 19 slides
+     where the two genuinely disagree would change behaviour for a reader who
+     never touched the speed control. Speed up the voice and the feature turns
+     itself on. Leave it alone and nothing about the lecture moves. */
+  function narrationEnded(el) {
+    if (!(rate > 1)) return;              /* 1x and 0.75x are untouched */
+    var pc = controller();
+    var at = position();
+    if (!pc || !at) return;
+    /* 🔴 THE ABANDONED TAKE, and it is why the slide is recorded on `play`
+       rather than looked up on `ended`. Two slides in this corpus carry a
+       discarded recording alongside the live one, and one of them is a
+       77-SECOND take on a slide lasting a millisecond: its `ended` arrives
+       long after the deck has moved on, and acting on it would skip a slide
+       the reader is still watching. If the deck is no longer where this clip
+       started, the clip is not the reason to move. */
+    if (el.__svSlide !== at.slide) return;
+    var sl = slides();
+    var count = null;
+    try { count = sl ? sl.count() : null; } catch (e) {}
+    /* The last slide ENDS. Advancing off the end is what `gotoTimestamp`
+       does not clamp, and this file has been bitten by that once already. */
+    if (typeof count !== "number" || at.slide + 1 >= count) return;
+    var playing = /^playing/.test(String(pc.playbackState()));
+    /* Step 0 and time 0: the slide we arrive on is not the slide we left, so
+       its step is not ours to carry, and -1 is the sentinel that would throw
+       the time away. Both traps are the skip button`s, measured there. */
+    try { pc.gotoTimestamp(at.slide + 1, 0, 0, playing); } catch (e) {}
+    applyRate();
+  }
+
+  /* One delegated pair on the document rather than a listener per element:
+     the export creates `<audio>` lazily, so anything attached at boot misses
+     most of the lecture. Capture phase, because media events do not bubble. */
+  function noteSlide(el) {
+    var at = position();
+    el.__svSlide = at ? at.slide : null;
+  }
+
+  function watchNarration() {
+    try {
+      document.addEventListener("play", function (e) {
+        if (!e || !e.target || e.target.tagName !== "AUDIO") return;
+        noteSlide(e.target);
+      }, true);
+      document.addEventListener("ended", function (e) {
+        if (!e || !e.target || e.target.tagName !== "AUDIO") return;
+        try { narrationEnded(e.target); } catch (x) {}
+      }, true);
+    } catch (e) {}
+  }
+
+  /* ---------- who draws the controls ------------------------------------
+     🔴 EH, 2026-09-02: "I'd like this control surface underneath the core
+     video screen. not as an overlay that may block part of the video."
+
+     So WHEN THIS PACKAGE IS EMBEDDED IN THE READER, this file draws nothing:
+     the lesson page draws the controls under the frame in its own document and
+     drives this player by message. 🟢 When the package is opened TOP-LEVEL
+     the overlay is still drawn, because there is then no reader to put them
+     in, and an overlay is better than no controls at all. That route is real:
+     it is how this player was probed in the first place.
+
+     🟢 A SECOND PAYOFF, and it is the manager's point rather than mine: a
+     real click cannot reach into a sandboxed cross-origin frame, so the strip
+     could only ever be verified by rendering. Controls in the parent document
+     are controls QA can actually CLICK. */
+  function embedded() {
+    try { return !!window.parent && window.parent !== window; } catch (e) { return true; }
+  }
+
+  /* ---------- the strip ------------------------------------------------ */
+  var label = null;
+  var deck = null;
+
+  function skip(delta) {
+    var pc = controller();
+    if (!pc) return;
+    /* 🔴 RE-READ WHILE ANYTHING IS STILL UNKNOWN. The deck used to be cached
+       on the first skip and kept for the life of the page, so a hole read
+       during a slide transition was permanent. */
+    if (deck === null || deck.indexOf(null) >= 0) deck = durations();
+    var at = position();
+    if (!deck || !at) return;
+    var to = seekTarget(deck, at.slide, at.time, delta);
+    if (!to) return;
+    /* 🔴 STEP -1 IS WHY THE SLIDE RESTARTED, and it is EH's own report:
+       "going back and forward 5 seconds or 15 seconds seems to just restart
+       the whole slide." MEASURED on the reported case, three calls with a control:
+
+         gotoTimestamp(3,  0, 8) -> slide 3, step 0, time 8.00   honoured
+         gotoTimestamp(3, -1, 8) -> slide 3, step 0, time 0.00   RESTARTED
+         gotoTimestamp(3,  0, 8) -> slide 3, step 0, time 8.00   honoured
+         gotoTimestamp(3,  5, 8) -> slide 3, step 0, time 8.00   honoured
+
+       So -1 is a sentinel that DISCARDS the time, while an out-of-range
+       positive step is tolerated. `stepIndex()` really does return -1:
+       `{slide: 0, step: -1, time: 0}` was read off a freshly opened lecture.
+       The old code passed it straight through.
+
+       ⚠️ AND A STEP FROM ANOTHER SLIDE IS NOT THIS SLIDE'S STEP. When the
+       skip crosses, the step belongs to the slide we left; 0 is the only
+       honest value for the slide we arrive on. */
+    var step = (to.slide === at.slide && typeof at.step === "number" && at.step > 0)
+      ? at.step : 0;
+    /* Keep playing if it was playing. `gotoTimestamp`'s fourth argument decides
+       that, and getting it wrong would pause the lecture on every skip. */
+    var playing = /^playing/.test(String(pc.playbackState()));
+    try { pc.gotoTimestamp(to.slide, step, to.time, playing); } catch (e) {}
+    applyRate();
+  }
+
+  function button(text, title, onclick) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "sv-pc-b";
+    b.textContent = text;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      try { onclick(); } catch (x) {}
+    });
+    return b;
+  }
+
+  function buildStrip() {
+    if (document.getElementById("sv-pc")) return;
+    var bar = document.createElement("div");
+    bar.id = "sv-pc";
+    bar.setAttribute("role", "group");
+    bar.setAttribute("aria-label", "Playback controls");
+
+    var canSeek = seekingAllowed();
+    var why = canSeek ? null
+      : "This lecture was published with skipping switched off";
+
+    [[-15, "Back 15 seconds", "\u226a15"], [-5, "Back 5 seconds", "\u2039\u20095"]]
+      .forEach(function (spec) {
+        var b = button(spec[2], why || spec[1], function () { skip(spec[0]); });
+        /* 🔴 A DEAD BUTTON THAT LOOKS LIVE IS WORSE THAN AN ABSENT ONE, and
+           worse again than a disabled one that says why. An export configured
+           for an LMS can ship with seeking off, and `gotoTimestamp` then does
+           nothing and returns nothing, so the reader would press and press. */
+        if (!canSeek) { b.disabled = true; }
+        bar.appendChild(b);
+      });
+
+    /* 🔴 A PULL-DOWN, NOT A CYCLE, RULED 2026-09-03 ON EH'S OWN QUESTION:
+       *"why would we have a cycle instead of a pull-down?"* Both halves of that
+       were right. This was a LEFTOVER rather than a design: before `cecb052`
+       this overlay was the ONLY control surface, the reader then got a proper
+       `<select>`, and this kept the button it already had.
+
+       ⚠️ IT ALSO DISSOLVES A PROBLEM RATHER THAN MANAGING ONE. The list went
+       from six values to eleven on his ask, and cycling would have meant TEN
+       CLICKS to get from 1 to 0.5.
+
+       🔴 WHERE THIS SURFACE IS SEEN, so nobody deletes it as dead: nothing in
+       Study Hub links to a package top-level (`package_embed` appears twice and
+       both are iframe sources inside the reader). The only routes are the
+       browser's own "open frame in new tab" and pasting the URL. That is a real
+       affordance, and a lecture with no controls at all is worse than one with
+       a picker that costs a `<select>`.
+
+       🟢 It keeps `sv-pc-b`, so EH's 44px ruling reaches it by the same
+       declaration the buttons use and the test that guards it needs no
+       change. */
+    /* 🔴 THE WORD "SPEED", ON EH'S ASK. A `<label>` WRAPPING the picker rather
+       than a span beside it: the word becomes a click target, and wrapping needs
+       no `id` -- this document is somebody else's export and an `id` of ours is
+       a collision waiting for the one package that already uses it. */
+    var lab = document.createElement("label");
+    lab.className = "sv-pc-lab";
+    lab.appendChild(document.createTextNode(RATE_LABEL));
+    label = document.createElement("select");
+    label.className = "sv-pc-b sv-pc-rate";
+    label.title = "Playback speed";
+    label.setAttribute("aria-label", "Playback speed");
+    RATES.forEach(function (v) {
+      var o = document.createElement("option");
+      o.value = String(v);
+      o.textContent = (v === 1 ? "1" : String(v)) + "\u00d7";
+      label.appendChild(o);
+    });
+    /* The same doctrine as every other value that crosses into this file:
+       from the LIST, never parsed and trusted. */
+    label.addEventListener("change", function () {
+      var v = parseFloat(label.value);
+      if (RATES.indexOf(v) >= 0) { setRate(v); }
+    });
+    lab.appendChild(label);
+    bar.appendChild(lab);
+
+    [[5, "Forward 5 seconds", "5\u2009\u203a"], [15, "Forward 15 seconds", "15\u226b"]]
+      .forEach(function (spec) {
+        var b = button(spec[2], why || spec[1], function () { skip(spec[0]); });
+        if (!canSeek) { b.disabled = true; }
+        bar.appendChild(b);
+      });
+
+    document.body.appendChild(bar);
+    showRate(rate);
+  }
+
+  /* ---------- the reader's end of the channel ---------------------------
+     🔴 THE RATE ALREADY CROSSED OUT; THIS IS THE WAY BACK IN. The package
+     posts the chosen rate to the parent because an opaque origin cannot save
+     anything itself. Now the parent needs to drive the player, so the same
+     channel runs the other way, with the same doctrine: an identity check
+     rather than an origin check, and values from a LIST rather than a range.
+
+     ⚠️ `e.origin` is worth nothing here. This document has an opaque origin,
+     and any frame can claim any origin string. What cannot be forged is WHICH
+     WINDOW sent the message, so the only sender accepted is the window that
+     framed us. */
+  var SKIPS = [-15, -5, 5, 15];
+
+  /* ---------- is the lecture PLAYING, and telling the reader so -----------
+
+     🔴 THIS EXISTS FOR ONE FEATURE: the lecture-speed control locks while the
+     lecture is playing, because changing it rebuilds the package and starts it
+     again from the top. The reader draws that control and cannot see in here,
+     so the answer has to be posted out.
+
+     🔴 THE VOCABULARY IS THE PLAYER'S OWN, and it was read off the player
+     rather than guessed: `playbackState()` returns one of `playingSlide`,
+     `playingTransition`, `pausedSlide`, `pausedTransition`. All four strings
+     are present in all 38 `data/player.js` files (checked 2026-09-03), and the
+     getter answered on 9.3.4, 9.7.0.23 and 10.1.0.6 -- the three versions that
+     cover 31 of the 38 packages. So "playing" is the `playing` PREFIX, which
+     covers the transition too: a deck moving between slides is playing, and a
+     lock that let go for the length of a transition would flicker.
+
+     🔴🔴 A POLL, NOT AN EVENT, AND THE CHOICE IS DELIBERATE.
+
+     Two other signals were available and both are wrong here:
+
+     1. **The `<audio>` `play` / `pause` events**, which this file already
+        delegates for the rate and for `watchNarration`. They are public, free
+        and event-driven. ⚠️ THEY ARE ALSO SILENT ON EXACTLY THE SLIDES WHERE
+        THE ANSWER MATTERS: a package has more slides than narration clips (16
+        against 14 on a real one, measured), so a slide with no voice is a
+        lecture that is playing with no audio element playing. The lock would
+        release itself mid-lecture.
+     2. **The clock's own listeners.** The presentation clock has events, but
+        they are not on the public surface this project has established
+        (`PROJECT-NOTES`, "The API, all of it through PUBLIC names"), and the
+        minified names move between the seven exporter versions in this corpus.
+        Binding to one would work on 23 packages and silently do nothing on the
+        other 15, which is the failure mode this project keeps meeting.
+
+     So: ask the getter. It is synchronous, it is public on every version
+     tested, and it is the player's own answer rather than a proxy for it.
+     400ms is imperceptible on a control whose whole job is to be greyed out,
+     and the callback posts only on a CHANGE, so the parent hears one message
+     per transition rather than two and a half per second.
+
+     ⚠️ WHAT NO TEST HERE CAN SHOW, and it is the same wall as the captions and
+     the narration hand-off: the clock is driven by `requestAnimationFrame` and
+     every tab in the automation harness is `hidden`, so THE STATE NEVER LEAVES
+     `pausedSlide` in any harness. `playingFromState` is therefore pure and
+     exported, and it is the part that is tested; that the state ever changes
+     is EH's acceptance on a real screen. */
+  var PLAY_POLL_MS = 400;
+  var playState = null;      /* null = never yet answered */
+  var playTimer = null;
+
+  /* Pure, so the vocabulary can be tested without a player at all. */
+  function playingFromState(st) {
+    if (typeof st !== "string" || !st) return null;
+    return st.slice(0, 7) === "playing";
+  }
+
+  function playingNow() {
+    var pc = controller();
+    if (!pc) return null;
+    try { return playingFromState(pc.playbackState()); } catch (e) { return null; }
+  }
+
+  /* 🔴 `force` is what makes this survive the race the captions half was bitten
+     by. A bar built after the lecture announced has never heard a transition,
+     so `announce()` sends the current answer whether or not it has changed. */
+  function sayPlaying(force) {
+    var now = playingNow();
+    if (now === null) return false;
+    if (!force && now === playState) return false;
+    playState = now;
+    return tell({ kind: "sv-player-playing", playing: now });
+  }
+
+  function watchPlaying() {
+    if (playTimer) return playTimer;
+    playTimer = window.setInterval(function () {
+      try { sayPlaying(false); } catch (e) {}
+    }, PLAY_POLL_MS);
+    return playTimer;
+  }
+
+  function announce() {
+    if (!embedded()) return false;
+    try {
+      window.parent.postMessage({
+        kind: "sv-player-ready",
+        seeking: seekingAllowed(),
+        rate: rate,
+        /* The lecture rate, and whether it can be changed in place. The
+           parent draws its picker on the second: `true` means a `lecture`
+           command will be honoured; `false` means the reload is the only way,
+           exactly as before the clock. Sent again after every live change,
+           which is how the parent's pickers follow it. */
+        lectureRate: lectureRate,
+        lectureLive: !!clock
+      }, "*");
+      /* And the play state, unconditionally. A bar that was built while this
+         lecture was already running would otherwise sit unlocked until the
+         reader happened to pause. */
+      try { sayPlaying(true); } catch (e) {}
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /* ---------- the reader's PLACE, across a lecture-rate reload ----------
+     🔴 EH ASKED FOR THIS HIMSELF: *"let's see if we can do the dynamic time
+     change with refresh while keeping the location of where we're at."*
+
+     🔴 THE RELOAD DESTROYS THIS DOCUMENT, so nothing in here can hold the place
+     across it. The parent asks before it touches `src`, holds the answer while
+     the frame is rebuilt, and hands it back when the new document announces
+     itself. These two functions are this end of that conversation.
+
+     🔴 ALWAYS ANSWER, EVEN WITH NOTHING TO SAY. The parent starts a fallback
+     timer when it asks, so a package that stayed silent would make the reader
+     wait the whole timeout for a speed change that then lands at the start
+     anyway. An answer carrying nulls is a fast, honest "I do not know where I
+     am", and it is the same outcome the timeout produces without the wait. */
+  /* 🔴 THE RATE THIS DOCUMENT'S LECTURE PLAYS AT, written in by the server
+     as the page was sent. It rides on every position answer for one reason:
+     the parent's other source for it is the frame's `src`, which says what
+     the frame was ASKED to load, and those two disagree for as long as a load
+     is in flight or a rebuild has failed. A rate that arrives WITH the answer
+     cannot be out of step with the answer.
+
+     🟢 AN UNFILLED TOKEN NEEDS NO GUARD, the same construction as
+     `@@PLAYBACK_RATE@@` above: `parseFloat("@@LECTURE_RATE@@")` is NaN, NaN is
+     not in `RATES`, so a page served by something that does not substitute
+     sends no rate at all and the parent falls back to reading the URL. That is
+     today's behaviour, which is the right thing to degrade to.
+
+     ⚠️ Until 2026-09-05 this was `builtRate`, the rate the timing blob had
+     been REBUILT at, and it could not change for the life of the document.
+     Under the clock it is the rate the clock is running at, and `setLectureRate`
+     below moves it. Same fact for the parent either way: the rate the lecture
+     is playing at, from the document that is playing it. */
+  var lectureRate = null;
+  (function () {
+    var v = parseFloat("@@LECTURE_RATE@@");
+    if (RATES.indexOf(v) >= 0) lectureRate = v;
+  })();
+
+  /* ---------- the lecture's clock (plans/11) -----------------------------
+     🔴 THE PLAYER KEEPS TIME BY `Date.now`, captured into a closure variable as
+     `player.js` is parsed, and by nothing else: no `performance.now`, no
+     `playbackRate`, and every timing in the blob is a number it compares
+     against differences of that one function. So the server puts a small shim
+     in front of `player.js` (`reader/player-clock.html`) when the page asks
+     for `?clock_rate=`, and the player captures a clock that can be told to
+     run at 1.5x. This strip is the only thing that ever tells it: the shim
+     starts at 1, and a document that has the shim and not this strip plays
+     exactly as before.
+
+     🟢 THIS IS WHAT REPLACES THE RELOAD. The blob is untouched, the document
+     is the same document, and a change mid-lecture is a rebase of the clock
+     and a `playbackRate` on the audio, both in the same turn, so the slides
+     and the voice change speed together at the same instant. The drift
+     corrector inside the player compares the slide clock with
+     `audio.currentTime`, and both advance at the same new rate, so it sees
+     nothing to correct.
+
+     ⚠️ `clock` is null on a document served without the shim: an older kit, a
+     server that was not restarted, a `?lecture_rate=` reload. Everything
+     below degrades to that: `setLectureRate` refuses, the announcement says
+     `lectureLive: false`, and the parent falls back to the reload it has
+     today. The parent decides which world it wants by which query it sends. */
+  var clock = null;
+  (function () {
+    try {
+      var c = window.__svClock;
+      if (c && typeof c.setRate === "function" && typeof c.rate === "function") clock = c;
+    } catch (e) {}
+  })();
+
+  /* The lecture, slides AND voice, at `v`, live, with no reload. The voice
+     goes with it because that is what the control is: EH's words for it are
+     "slides and voice together", and slides at 2x over a voice at 1x is the
+     out-of-step lecture this whole feature exists to prevent. `showRate`
+     rather than `setRate`: the reader chose a LECTURE speed, and the reload
+     path never saved that as their voice preference either. The parent's
+     lecture picker follows through the announcement; the voice picker it used
+     to have beside it went on 2026-09-05, and the voice now simply boots and
+     moves at the lecture rate. */
+  function setLectureRate(v) {
+    if (!clock || RATES.indexOf(v) < 0) return false;
+    if (!clock.setRate(v)) return false;
+    lectureRate = v;
+    showRate(v);
+    try { announce(); } catch (e) {}
+    return true;
+  }
+
+  function tellPosition() {
+    var at = position();
+    return tell({
+      kind: "sv-player-position",
+      slide: at ? at.slide : null,
+      step: at ? at.step : null,
+      time: at ? at.time : null,
+      /* ⚠️ SENT EVEN WHEN THE POSITION IS NULL. The rate is a fact about
+         this document, not about whether its clock could be read, and the
+         parent needs it to know WHOSE null it is holding. */
+      rate: lectureRate
+    });
+  }
+
+  /* 🔴 PAUSED, DELIBERATELY, AND THIS IS THE RESUME DECISION STATED RATHER THAN
+     LEFT TO THE READER TO DISCOVER. `gotoTimestamp`'s fourth argument would ask
+     the rebuilt lecture to carry on playing, which is tempting because the
+     reader was playing a quarter of a second ago.
+
+     ⚠️ IT IS THE FRAME THAT IS NEW, NOT ONLY THE PAGE. This document is served
+     `sandbox allow-scripts` with no `allow-same-origin`, so the reload gets a
+     FRESH OPAQUE ORIGIN with no user activation of its own: the reader's click
+     happened in the parent, on the document this one replaced. That is the same
+     policy the manager measured on autostart -- a lecture does not begin by
+     itself in Chrome, because autoplay with sound is blocked -- so a resume
+     would be refused for exactly the same reason.
+
+     🔴 AND THE FAILURE IS NOT SYMMETRIC, which is what settles it. The
+     presentation clock is driven by `requestAnimationFrame` and NOT by the
+     audio (the same fact that makes every harness tab useless for timing), so a
+     player told to resume while its narration is blocked advances the SLIDES IN
+     SILENCE. Landing paused at the right place is what a refusal produces
+     anyway, without that risk.
+
+     🟢 Reversing it is one argument. What has to be measured first is whether a
+     blocked resume leaves the clock running, and that is a real-screen
+     measurement nobody can take from here. */
+  /* ⚠️⚠️ TEMPORARY DIAGNOSTIC, 2026-09-05. REMOVE WITH ITS QUEUE ENTRY.
+
+     🔴🔴 THE GAP THIS CLOSES, AND IT IS THE ONE EH'S RUN EXPOSED. The parent
+     logs `POSTED ok`, which proves the message was DELIVERED and nothing more.
+     **`gotoPlace` can then return false, or `gotoTimestamp` can accept the call
+     and not move, and the parent's line reads identically.** EH's three cycles
+     all printed `POSTED ok` and he still landed at the start, so delivery is
+     measured and OUTCOME is not.
+
+     🔴🔴 IT POLLS, AND THE FIRST VERSION OF THIS FUNCTION DID NOT. **A fixed
+     400ms readback reported `DID NOT LAND ... slide=-1` on a restore that had
+     landed perfectly** -- measured on the rig 2026-09-05, where the final
+     position was the asked-for slide 3 at time 20.00 while this function was
+     still reading -1. `slideIndex()` returns -1 for a while after a seek, so a
+     single late reading is not "where it ended up", it is "whether the clock
+     had surfaced yet by an arbitrary deadline".
+
+     ⚠️ **I wrote a comment warning about exactly that failure and then chose a
+     deadline too short to avoid it**, which is why this now polls to a settled
+     answer instead of trusting one clock reading. **A diagnostic that
+     manufactures the defect it was sent to find is worse than none**, and this
+     one would have sent EH a red line about a working restore.
+
+     🟢 WHAT THE THREE OUTCOMES MEAN, and they are now distinguishable:
+       - `settled` false          the clock never surfaced at all in 3s
+       - settled AT the asked place   the restore worked, and `ms` is how long it took
+       - settled SOMEWHERE ELSE       the seek ran and went to the wrong place
+
+     🟢 It cannot affect the restore: every line is inside its own try/catch and
+     the polling starts after `gotoPlace` has already returned. */
+  /* ⚠️⚠️ TEMPORARY DIAGNOSTIC, 2026-09-05. REMOVE WITH ITS QUEUE ENTRY.
+
+     🔴🔴 WHY WHERE-IT-LANDED IS NOT ENOUGH, AND EH'S OWN SCREENSHOT IS THE
+     PROOF. He photographed the deck at **slide 5 of 14, 00:01 of 00:21, with
+     the spinner up** -- which is exactly the place the last goto asked for.
+     **The restore LANDED AND THEN THE DECK FROZE.** `reportLanding` alone would
+     print `LANDED ok` for that run and say nothing about the half he is
+     actually stuck on.
+
+     🟢 TWO READINGS, because his symptom has two independent tells:
+       - the PRELOADER is still on screen. `id="preloader"` is checked against
+         reality rather than the test fixture: **38 of 38 real packages carry
+         it.** A hidden element has no box, so the size is what is read;
+         `offsetParent` alone is null for `position:fixed` too.
+       - NARRATION IS STUCK. `networkState 2` with `readyState 0` is a fetch
+         that started and never arrived, which is the state the entry's own
+         promoted mechanism predicts: `gotoTimestamp` seeks, a seek reloads
+         narration, and a reload that never completes freezes everything.
+
+     ⚠️ NEITHER READING IS A DIAGNOSIS. Both are states; which one is up tells
+     the next session which half to look at, and a healthy deck says so out
+     loud rather than staying silent, so the absence of a spinner is a
+     measurement rather than a gap. */
+  function deckHealth() {
+    var out = { spinner: null, loading: 0, stalled: 0, errored: 0,
+                sourceless: 0, media: 0, worst: null };
+    try {
+      var pre = document.getElementById("preloader");
+      out.spinner = !!(pre && (pre.offsetWidth || pre.offsetHeight));
+    } catch (e) {}
+    try {
+      var els = document.querySelectorAll("audio,video");
+      out.media = els.length;
+      for (var i = 0; i < els.length; i++) {
+        var m = els[i];
+        if (m.networkState === 2 && m.readyState === 0) {
+          out.loading += 1;
+          if (!out.worst) {
+            var src = m.currentSrc || m.src || "";
+            out.worst = src.split("/").pop() || "unnamed";
+          }
+        }
+        /* 🔴🔴 THE READING `loading` COULD NOT TAKE, AND EH'S FREEZE IS EXACTLY
+           IT. `networkState === 2` is NETWORK_LOADING: a fetch in flight. A
+           request that FAILED moves to 3, an element holding a decode error
+           keeps its own `error`, and neither is `2` -- so `loading: 0` was
+           reported on all three of his frozen runs while nothing played.
+           **An absence from one specific state is not health**, which is this
+           project's own missing-versus-passing rule inside a probe.
+
+           🔴 `stalled` IS HIS SYMPTOM STATED AS A MEASUREMENT: the element is
+           NOT paused, so the player has been told to play it, and its
+           `readyState` is below HAVE_FUTURE_DATA, so it cannot. **Pressed play,
+           nothing happens.** ⚠️ It reads 0 on a healthy restore by
+           construction, because the restore lands PAUSED, which is what keeps
+           it from becoming a fifth false alarm. */
+        if (!m.paused && m.readyState < 3) {
+          out.stalled += 1;
+          if (!out.worst) {
+            var ss = m.currentSrc || m.src || "";
+            out.worst = ss.split("/").pop() || "unnamed";
+          }
+        }
+        /* 🔴 AN ELEMENT WITH NO SOURCE AT ALL, counted because EH's diary
+           showed every refused `play()` landing on one. The export creates
+           `<audio>` lazily, so empty ones are NORMAL and this is a fact to
+           report rather than a fault -- but it was invisible, and "how many
+           elements exist" could not be answered from the line at all. */
+        var has = "";
+        try { has = m.currentSrc || m.src || ""; } catch (x) {}
+        if (!has) out.sourceless += 1;
+        if (m.error) {
+          out.errored += 1;
+          if (!out.worst) {
+            var es = m.currentSrc || m.src || "";
+            out.worst = es.split("/").pop() || "unnamed";
+          }
+        }
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  /* ⚠️⚠️ TEMPORARY DIAGNOSTIC, 2026-09-05. REMOVE WITH ITS QUEUE ENTRY.
+
+     🔴 EVERY ELEMENT, IN FULL, because the counts above are a summary and a
+     summary is what hid this for two days. EH's deck accepts clicks (the play
+     button toggles to pause and back) and plays nothing, which means the
+     player's state machine is alive and the MEDIA is not -- and the only way to
+     tell which of the several ways that can happen is happening is to read the
+     numbers off the elements themselves.
+
+     ⚠️ CAPPED, and the cap is the point rather than tidiness: a package has one
+     audio per slide and this line has to be readable in a console and pasteable
+     into a chat. */
+  function mediaReport() {
+    var out = [];
+    try {
+      var els = document.querySelectorAll("audio,video");
+      for (var i = 0; i < els.length && out.length < 6; i++) {
+        var m = els[i];
+        var row = { src: "?", net: null, ready: null, err: null,
+                    paused: null, at: null, len: null, buf: 0, rate: null };
+        try {
+          var src = m.currentSrc || m.src || "";
+          row.src = src.split("/").pop() || "unnamed";
+          row.net = m.networkState;
+          row.ready = m.readyState;
+          row.err = (m.error && typeof m.error.code === "number") ? m.error.code : null;
+          row.paused = !!m.paused;
+          row.at = Math.round(Number(m.currentTime) * 100) / 100;
+          row.len = isFinite(m.duration) ? Math.round(Number(m.duration) * 100) / 100 : null;
+          row.buf = (m.buffered && typeof m.buffered.length === "number") ? m.buffered.length : 0;
+          row.rate = m.playbackRate;
+        } catch (e) {}
+        /* Elements with nothing loaded and nothing asked of them are the normal
+           case in a lazily-loaded package (every one is `preload="none"`), and
+           listing fourteen of them buries the one that matters. */
+        if (row.net || row.ready || row.err || row.paused === false || row.buf) {
+          out.push(row);
+        }
+      }
+    } catch (e) {}
+    return out;
+  }
+
+  /* ⚠️⚠️ TEMPORARY DIAGNOSTIC, 2026-09-05. REMOVE WITH ITS QUEUE ENTRY.
+
+     🔴🔴 A STATE READING CANNOT SEE AN EVENT THAT IS ALREADY OVER, and EH's
+     first `__svDeck()` proved it: every element read `net=1 ready=0 err=none
+     paused=true`, which is a perfectly healthy IDLE deck. **Nothing was
+     broken because nothing had been ASKED for.** The interesting moment is the
+     one between him pressing play and the deck settling back, and by the time
+     he can type into a console it has passed.
+
+     🟢 SO THE EVENTS ARE RECORDED AS THEY HAPPEN and read back afterwards. He
+     presses play, waits, types `__svDeck()`, and the whole sequence is there.
+     **That removes the timing skill from the reader**, which is the only reason
+     the previous reading was ambiguous.
+
+     ⚠️ CAPPED AND CHEAP: a fixed ring, a string and two numbers per entry, no
+     DOM held. It must not become a leak in a lecture somebody leaves open. */
+  var SV_EV = [];
+  var SV_EV_T0 = (new Date()).getTime();
+  var SV_TAG = 0;
+
+  /* 🔴 EACH ELEMENT GETS A NUMBER THE FIRST TIME IT IS SEEN, and it is the
+     distinction EH's first diary could not make: **fourteen refusals in one
+     millisecond is a completely different fact depending on whether it is
+     fourteen ELEMENTS refusing once or one element refusing fourteen times.**
+     The first is a player starting up and finding nothing to play; the second
+     is a retry loop. Nothing in the reading told them apart. */
+  function svTagOf(el) {
+    try {
+      if (!el) return null;
+      if (typeof el.__svTag !== "number") { SV_TAG += 1; el.__svTag = SV_TAG; }
+      return el.__svTag;
+    } catch (e) { return null; }
+  }
+
+  /* 🔴🔴 CONSECUTIVE REPEATS COLLAPSE INTO A COUNT, and this is a fix for a
+     measured failure of this very buffer. EH's diary came back holding
+     FOURTEEN IDENTICAL ENTRIES at the same millisecond -- every slot -- so the
+     burst had evicted the `play() CALLED` notes that preceded it and anything
+     else that had happened. **A ring buffer with no repeat handling reports the
+     loudest event and hides the informative one**, which is the opposite of
+     what it is for. A console has collapsed repeats for this reason for
+     twenty years. */
+  function note(what, el, extra) {
+    try {
+      var src = "";
+      try { src = (el && (el.currentSrc || el.src)) || ""; } catch (e) {}
+      src = src.split("/").pop() || "no source";
+      var more = extra === undefined ? null : extra;
+      var tag = svTagOf(el);
+      var last = SV_EV.length ? SV_EV[SV_EV.length - 1] : null;
+      if (last && last.what === what && last.src === src && last.more === more) {
+        last.n += 1;
+        last.at = (new Date()).getTime() - SV_EV_T0;
+        if (last.who.length < 6 && last.who.indexOf(tag) < 0) last.who.push(tag);
+        return;
+      }
+      SV_EV.push({ at: (new Date()).getTime() - SV_EV_T0,
+                   what: what, src: src, more: more, n: 1, who: [tag] });
+      if (SV_EV.length > 60) SV_EV.shift();
+    } catch (e) {}
+  }
+
+  /* ⚠️⚠️ TEMPORARY DIAGNOSTIC, 2026-09-05. REMOVE WITH ITS QUEUE ENTRY.
+     🔴 CAPTURE PHASE, because media events do not bubble -- the same reason
+     `watchMedia` gives, and the same reason a per-element listener would miss
+     most of a lecture: the export creates `<audio>` lazily. */
+  var SV_EVENTS = ["play", "playing", "pause", "waiting", "stalled", "suspend",
+                   "abort", "error", "loadstart", "canplay", "emptied", "ended"];
+
+  function watchMediaEvents() {
+    var on = 0;
+    for (var i = 0; i < SV_EVENTS.length; i++) {
+      (function (ev) {
+        try {
+          document.addEventListener(ev, function (e) {
+            if (!e || !e.target) return;
+            var tag = e.target.tagName;
+            if (tag !== "AUDIO" && tag !== "VIDEO") return;
+            var extra = null;
+            if (ev === "error") {
+              try {
+                extra = (e.target.error && typeof e.target.error.code === "number")
+                  ? ("code " + e.target.error.code) : "no code";
+              } catch (x) {}
+            }
+            note(ev, e.target, extra);
+          }, true);
+          on += 1;
+        } catch (x) {}
+      })(SV_EVENTS[i]);
+    }
+    return on;
+  }
+
+  /* ⚠️⚠️ TEMPORARY DIAGNOSTIC, 2026-09-05. REMOVE WITH ITS QUEUE ENTRY.
+
+     🔴🔴🔴 THE DECISIVE ONE, AND NOTHING ELSE CAN TAKE IT. `play()` returns a
+     PROMISE, and when the browser refuses playback that promise REJECTS and the
+     element goes quietly back to paused. **From outside, "the click never
+     reached the player" and "the browser refused the sound" are the same
+     picture: a button that flicks and a lecture that does not start** -- which
+     is EH's description word for word.
+
+     🔴 `NotAllowedError` is the autoplay policy, and this frame is the textbook
+     case for it: served `sandbox allow-scripts` with NO `allow-same-origin`, so
+     a reload gets a FRESH OPAQUE ORIGIN with no user activation of its own.
+     The reasoning is already written over `gotoPlace`; **this measures it
+     instead of predicting it.**
+
+     ⚠️ IT OBSERVES AND DOES NOT INTERFERE. The original promise is returned
+     unchanged, and `then` builds a NEW promise for our note, so the vendor's own
+     handling is exactly what it was. A wrapper that swallowed a rejection would
+     change the very behaviour it is here to watch. */
+  function watchPlayCalls() {
+    try {
+      var M = window.HTMLMediaElement && window.HTMLMediaElement.prototype;
+      if (!M || typeof M.play !== "function" || M.__svPlayWrapped) return false;
+      var real = M.play;
+      M.play = function () {
+        var el = this, p;
+        note("play() CALLED", el, null);
+        try {
+          p = real.apply(this, arguments);
+        } catch (e) {
+          note("play() THREW", el, String((e && e.name) || e));
+          throw e;
+        }
+        try {
+          if (p && typeof p.then === "function") {
+            p.then(function () { note("play() ok", el, null); },
+                   function (err) {
+                     note("play() REFUSED", el, String((err && err.name) || err));
+                   });
+          }
+        } catch (e) {}
+        return p;
+      };
+      M.__svPlayWrapped = true;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  /* ⚠️⚠️ TEMPORARY DIAGNOSTIC, 2026-09-05. REMOVE WITH ITS QUEUE ENTRY.
+
+     🔴🔴 THE READING NOBODY COULD TAKE, AND IT IS THE ONE THE WHOLE FREEZE
+     TURNS ON: **is the clock actually moving?** Every instrument built so far
+     answers WHERE the deck is. None answers whether it is RUNNING, and EH's
+     report is precisely that it sits still. Two readings six hundred
+     milliseconds apart is the entire measurement.
+
+     🟢 AND IT CAN BE ASKED AT ANY TIME, which `deckHealth` could not: it was
+     reachable only from `reportLanding`, so it could only ever describe the
+     seconds after a seek. A deck that is stuck NOW is the thing to interrogate,
+     and until this there was no way to ask it. */
+  function sayHealth() {
+    var before = null;
+    try { before = position(); } catch (e) {}
+    var t0 = (new Date()).getTime();
+    try {
+      window.setTimeout(function () {
+        var after = null, playing = null;
+        try { after = position(); } catch (e) {}
+        try { playing = playingNow(); } catch (e) {}
+        tell({ kind: "sv-player-health", health: deckHealth(),
+               media: mediaReport(), before: before, after: after,
+               playing: playing, ms: (new Date()).getTime() - t0,
+               events: SV_EV.slice(-14), rate: lectureRate });
+      }, 600);
+    } catch (e) { return false; }
+    return true;
+  }
+
+  function reportLanding(asked, why) {
+    try {
+      var t0 = (new Date()).getTime();
+      var atOnce = null;
+      try { atOnce = position(); } catch (e) {}
+      var tries = 0;
+      /* 🔴🔴 THE FIRST SETTLED READING, AND EH'S OWN THREE CYCLES ARE WHY IT
+         HAD TO BE ADDED. Until this, the only position reported was the one
+         taken when the loop ENDED -- and in the reader that is always the
+         8-second ceiling, never the settle, because the exit needs `booted` and
+         the preloader never goes in this frame (measured here 2026-09-05, and
+         confirmed three times on EH's own machine: ms 8040, 8094, 8001).
+
+         🔴 SO THE LINE WAS ATTRIBUTING EIGHT SECONDS OF THE READER'S OWN
+         BROWSING TO THE SEEK. His console shows the deck's NEXT button holding
+         focus, so a reader pressing on while the report is still polling is
+         not hypothetical -- it is what his run did. A restore that landed
+         perfectly and was then navigated away from printed
+         `LANDED IN THE WRONG PLACE`, which is the same class of false alarm as
+         the 400ms clock read and the single spinner read: an instrument
+         reporting a working feature as broken.
+
+         🟢 TWO READINGS SEPARATE THE TWO FACTS. `first` is what the SEEK did,
+         taken the moment the clock surfaces; `later` is where things ended up
+         by the ceiling. When they differ, something moved the deck after the
+         seek, and that is a different finding from a seek that went astray. */
+      var first = null;
+      var firstMs = null;
+      var tick = function () {
+        var p = null;
+        try { p = position(); } catch (e) {}
+        var h = deckHealth();
+        tries += 1;
+        var settled = !!(p && typeof p.slide === "number" && p.slide >= 0);
+        if (settled && !first) {
+          first = p;
+          firstMs = (new Date()).getTime() - t0;
+        }
+        /* 🔴🔴 WAITING FOR THE BOOT IS NOT OPTIONAL, AND THE FIRST VERSION OF
+           THIS DID NOT. It read the spinner once, at the moment the position
+           surfaced, and reported EVERY healthy restore as a freeze -- measured
+           in a real browser 2026-09-05, `THE SPINNER IS STILL UP` on a restore
+           that was perfect.
+
+           🔴 THE REASON IS STRUCTURAL RATHER THAN A TIMING ACCIDENT, so a
+           bigger single delay would not have fixed it. `wrapStart` runs
+           `adopt(p)` and THEN the export's callback, which is what removes the
+           preloader; `adopt` drains the `whenReady` queue SYNCHRONOUSLY, so
+           `announce` -> the parent's restore -> `gotoPlace` -> this function
+           all run BEFORE the vendor has removed it. **The spinner is up 100%
+           of the time at that instant, by construction.**
+
+           ⚠️ So `booted` is polled to a conclusion exactly as the position is,
+           and the ceiling is longer because a machine that really decodes
+           audio boots slower than any harness here. A spinner still up at the
+           ceiling is EH's symptom; one gone in 300ms is a healthy boot. */
+        var booted = !h.spinner;
+        /* 🔴🔴 THE CEILING IS WALL-CLOCK AND NOT A POLL COUNT, and the first
+           version of this was a poll count. **A count is a proxy for time that
+           stops being one exactly when it matters**: Chrome throttles
+           `setTimeout` chains in a background tab, so 80 polls at 100ms is 8
+           seconds in front of the reader and well over a minute behind another
+           tab. Measured 2026-09-05 in this project's own harness -- a 20-poll
+           chain that should have taken 2s had not finished in 45s, and the
+           report never arrived at all.
+
+           ⚠️ **EH's own case is the one that matters**: change the speed, switch
+           tab while it reloads, come back. A count-based ceiling turns that into
+           a diagnostic that never prints, which reads exactly like a broken
+           instrument. */
+        if ((settled && booted) || (new Date()).getTime() - t0 >= 8000) {
+          tell({ kind: "sv-player-landed", asked: asked || null, why: why || null,
+                 now: atOnce, first: first, firstMs: firstMs,
+                 later: p, settled: settled, booted: booted,
+                 tries: tries, health: h,
+                 ms: (new Date()).getTime() - t0, rate: lectureRate });
+          return;
+        }
+        window.setTimeout(tick, 100);
+      };
+      window.setTimeout(tick, 100);
+    } catch (e) {}
+  }
+
+  function gotoPlace(slide, step, time) {
+    var pc = controller();
+    if (!pc) { reportLanding(null, "no controller, so nothing was asked to move"); return false; }
+    var to = restoreTarget(durations(), slide, time);
+    /* No deck, no restore: the lecture opens at its start, which is exactly
+       today's behaviour and is the fallback this feature is allowed to have.
+       🔴 Never land somewhere arbitrary. */
+    if (!to) {
+      reportLanding(null, "durations() gave no deck, so restoreTarget refused");
+      return false;
+    }
+    try { pc.gotoTimestamp(to.slide, step, to.time, false); }
+    catch (e) {
+      reportLanding({ slide: to.slide, step: step, time: to.time },
+                    "gotoTimestamp THREW: " + (e && e.message ? e.message : e));
+      return false;
+    }
+    reportLanding({ slide: to.slide, step: step, time: to.time }, null);
+    /* A seek reloads narration and `load()` resets `playbackRate` to 1. The
+       skip path has re-applied the voice speed after a seek since it shipped;
+       a restore is a seek and needs it for the same reason. */
+    try { applyRate(); } catch (e) {}
+    return true;
+  }
+
+  /* A number this side is willing to act on: finite and not negative. It is one
+     function rather than three inline tests so that the -1 case below can point
+     at it. */
+  function counted(v) {
+    return typeof v === "number" && isFinite(v) && v >= 0;
+  }
+
+  function onParentCommand(e) {
+    var d = e && e.data;
+    if (!d || typeof d !== "object" || d.kind !== "sv-player-cmd") return false;
+    var top;
+    try { top = window.parent; } catch (x) { return false; }
+    if (!top || top === window || e.source !== top) return false;
+    if (d.what === "hello") { announce(); return true; }
+    if (d.what === "skip") {
+      if (SKIPS.indexOf(d.delta) < 0) return false;
+      skip(d.delta);
+      return true;
+    }
+    if (d.what === "captions") {
+      /* 🔴 A BOOLEAN, CHECKED AS ONE. `d.on === true` rather than a truthy
+         test, so the only thing that switches captions on is the word true:
+         the same doctrine as the rate arriving from a LIST, applied to the
+         smallest list there is. */
+      setCaptions(d.on === true);
+      return true;
+    }
+    if (d.what === "position") return tellPosition();
+    /* ⚠️ TEMPORARY DIAGNOSTIC, 2026-09-05. REMOVE WITH ITS QUEUE ENTRY. */
+    if (d.what === "health") return sayHealth();
+    if (d.what === "goto") {
+      /* 🔴 THREE NUMBERS, VALIDATED AS NUMBERS ON BOTH SIDES. Every other
+         command on this channel is a value off a fixed list, checked both ways;
+         this one carries arithmetic, so the doctrine applied to it is that
+         nothing but a finite non-negative number gets through.
+
+         🔴 STEP -1 THEREFORE CANNOT ARRIVE, and that is the point of testing the
+         step here rather than trusting the sender. It is the sentinel that
+         DISCARDS the time -- `gotoTimestamp(3, -1, 8)` lands at 0.00, measured
+         -- so a non-negative test excludes it by construction instead of by a
+         special case somebody has to remember to keep. */
+      if (!counted(d.slide) || !counted(d.step) || !counted(d.time)) return false;
+      return gotoPlace(d.slide, Math.floor(d.step), d.time);
+    }
+    if (d.what === "rate") {
+      if (RATES.indexOf(d.rate) < 0) return false;
+      /* `setRate`, not `showRate`: the reader asked for it, so the reader's
+         own save path should hear about it too and nothing has to special-case
+         where the click came from. */
+      setRate(d.rate);
+      return true;
+    }
+    if (d.what === "lecture") {
+      /* The whole lecture, in place. `setLectureRate` holds the ONE guard
+         (the same list as everything else on this channel, and a clock to
+         move) and refuses outright, so the parent's fallback (a reload) is a
+         false here rather than a silence. A second copy of the list check
+         here was an equivalent mutant in the sweep, which is what a redundant
+         guard is: two checks, and a test can only see one of them. */
+      return setLectureRate(d.rate);
+    }
+    return false;
+  }
+
+  window.__svPlayerControls = {
+    whenReady: whenReady,
+    controller: controller,
+    position: position,
+    durations: durations,
+    seekingAllowed: seekingAllowed,
+    seekTarget: seekTarget,
+    restoreTarget: restoreTarget,
+    tellPosition: tellPosition,
+    gotoPlace: gotoPlace,
+    handle: function () { return player; },
+    setRate: function (v) { setRate(v); },
+    rate: function () { return rate; },
+    applyRate: applyRate,
+    setLectureRate: setLectureRate,
+    lectureRate: function () { return lectureRate; },
+    clock: function () { return clock; },
+    skip: skip,
+    build: buildStrip,
+    embedded: embedded,
+    announce: announce,
+    narrationEnded: narrationEnded,
+    watchNarration: watchNarration,
+    reachDetached: reachDetached,
+    reached: function () { return reached.slice(); },
+    applyTo: applyTo,
+    inDocument: inDocument,
+    playingFromState: playingFromState,
+    playingNow: playingNow,
+    sayPlaying: sayPlaying,
+    watchPlaying: watchPlaying,
+    PLAY_POLL_MS: PLAY_POLL_MS,
+    onParentCommand: onParentCommand,
+    /* ⚠️ TEMPORARY DIAGNOSTIC, 2026-09-05. REMOVE WITH ITS QUEUE ENTRY. */
+    mediaReport: mediaReport,
+    sayHealth: sayHealth,
+    watchMediaEvents: watchMediaEvents,
+    watchPlayCalls: watchPlayCalls,
+    events: function () { return SV_EV.slice(); },
+    RATES: RATES,
+    RATE_LABEL: RATE_LABEL,
+    SKIPS: SKIPS,
+    /* Exported so the parser and the naming can be driven directly. A cue
+       parser reached only by loading a real package in a real browser is one
+       that gets checked by hand once and then never again. */
+    parseVtt: parseVtt,
+    vttTime: vttTime,
+    clipVtt: clipVtt,
+    captionsBase: captionsBase,
+    loadCaptions: loadCaptions,
+    loadDetachedCaptions: loadDetachedCaptions,
+    captionDetached: captionDetached,
+    fillTrack: fillTrack,
+    setCaptions: setCaptions,
+    captionsOn: function () { return CAP_ON; },
+    CUE_MAX: CUE_MAX
+  };
+
+  /* 🔴 THE CLOCK IS SET BEFORE THE PLAYER STARTS, and this runs at parse
+     time, after `player.js` and before the export's own inline boot, which is
+     the only window there is: the player has captured the shim's `Date.now`
+     and has not yet read it. So a lecture opened at 1.5 runs at 1.5 from its
+     first tick, not from some tick after boot. `applyRate` is not needed here:
+     `rate` was filled to the same number by the server on a scaled document,
+     and `watchMedia` applies it to every `<audio>` as it loads. */
+  try { if (clock && lectureRate !== null) clock.setRate(lectureRate); } catch (e) {}
+  try { wrapStart(); } catch (e) {}
+  try { watchMedia(); } catch (e) {}
+  try { reachDetached(); } catch (e) {}
+  try { watchNewMedia(); } catch (e) {}
+  try { watchNarration(); } catch (e) {}
+  /* ⚠️ TEMPORARY DIAGNOSTIC, 2026-09-05. REMOVE WITH ITS QUEUE ENTRY. */
+  try { watchMediaEvents(); } catch (e) {}
+  try { watchPlayCalls(); } catch (e) {}
+  try { watchPlaying(); } catch (e) {}
+  try { window.addEventListener("message", onParentCommand, false); } catch (e) {}
+  try {
+    whenReady(function () {
+      /* The controls appear only once the player is actually held, wherever
+         they are drawn. Earlier would put buttons on a page that cannot do
+         anything, and a control that does nothing when pressed is a bug the
+         reader reports as "the lecture is broken". */
+      if (embedded()) { try { announce(); } catch (e) {} return; }
+      try { buildStrip(); } catch (e) {}
+    });
+  } catch (e) {}
+})();
+</script>

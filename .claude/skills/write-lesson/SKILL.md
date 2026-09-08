@@ -252,6 +252,50 @@ the retraction at exactly the moment it mattered.
 the other, proven both ways in one course: one paper's corrigendum appears only
 in Crossref's `updated-by`, another's only in PubMed's "Erratum in" line.
 
+## The outline, in the same sitting
+
+**Every lesson has a second file, `courses/<CODE>/<DOC>-outline.md`, and it is
+written now rather than later.** NOTE-SPEC section F is the spec; this is why it
+is a step rather than a footnote.
+
+The lesson itself carries **no** provenance: no source filenames, no file ids, no
+slide ranges, no runtimes, no numbering warnings, no OCR complaints. That is
+deliberate, because the lesson has to stand alone. **The outline is where all of
+it goes**, so if it is not written in the same sitting, the audit trail simply
+does not exist: you will not reconstruct which slide a section came from a week
+later.
+
+What goes in it:
+
+- The lesson's content as a terse hierarchical outline, headings and sub-points,
+  the shape rather than the prose. It is for grep and for pasting elsewhere.
+- **A provenance block at the end**, and it may name anything: the source files,
+  their ids, the slide-to-section mapping, runtime, slides with no audio,
+  numbering discrepancies, OCR problems, and anything you flagged as doubtful.
+- Any judgment call you made that a later reader would otherwise re-litigate.
+  Which source a section was written from when it was not both is the common one.
+
+Its body should read cleanly but it is not held to the stand-alone rule; it is a
+working file, not a published resource.
+
+🔴 **Its absence is silent, which is the whole reason this is a step.**
+`course_text()` builds the digest that whole-course questions are answered from,
+and it uses **1500 characters of the outline where one exists and falls back to
+700 characters of the lesson's raw opening where it does not**. So a course
+written without outlines answers whole-course questions from a thinner,
+uncurated digest, with nothing anywhere saying why. This requirement was missing
+from this skill until 2026-08-30 and one whole course was written through it
+with **0 outlines for 38 lessons**.
+
+**Check it before you finish:**
+
+```
+python3 server/verify_course.py <CODE>
+```
+
+`lesson outlines  ok` is what you are looking for. `partial (n of m)` names the
+lessons that have none.
+
 ## The glossary, in the same sitting
 
 Every lesson carries a "terms to define cold" section as `<dt>`/`<dd>` pairs,
@@ -274,6 +318,9 @@ with the lesson files you just wrote, read the count it prints, and say it.
   diagram, and check the panel opens.
 - If the course has a `materials.json`, add this part's `href` so the Materials
   pane can pair the lesson with its deck and video.
+- Confirm the outline is there: `python3 server/verify_course.py <CODE>` should
+  say `lesson outlines  ok`. It is the deliverable most easily forgotten, because
+  nothing in the reader shows it and nothing breaks visibly without it.
 - Say what you actually ran and what it said. If you skipped the verifier
   because the network was down, say that too, rather than reporting a pass that
   did not happen.

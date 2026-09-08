@@ -1,5 +1,5 @@
 {
- "version": "2026.08.30+b05e66b",
+ "version": "2026.09.08+5a46ad2",
  "url": "https://github.com/ehawkin/study-hub/releases/latest",
- "note": "Lessons open properly on every address again, every course has working next and previous links even before you pair a device, and a Start Study Hub button means you never need a terminal. Lightbulbs now sit beside the stars so you can rate how well you understand a part, a topic or a week, quick clicks are no longer lost, and the highlight button stays readable in dark mode in every colour. Saved slide packages keep all of their pictures, and if you keep more than one course they no longer share a name or overwrite each other's Obsidian note."
+ "note": "Captions, the whole-lecture clock with no reload, both iOS fixes (speed and captions), and highlight colour mixing. First release since 2026-08-30."
 }

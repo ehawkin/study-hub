@@ -291,8 +291,15 @@ print("\n=== javascript parses (node --check) ===")
 # The reader's own JavaScript and CSS left the lessons in the content/reader
 # split, so the two files it lives in now are checked by name. Miss them and
 # this sweep would have gone quiet about the largest scripts in the project.
+# 🔴 The reader's own HTML is DISCOVERED, not listed. This was a two-name list
+# and `server/reader/player-controls.html` was added beside them on 2026-09-01
+# with the gate silently going on checking two: a hardcoded list rots the day
+# somebody adds a file, and the failure is that nothing is checked rather than
+# that something is wrong. `*.html` also excludes the dated `.bak` copies that
+# live in that folder, which are not code anybody runs.
 JS_FILES = ([NOTES_DIR / "index.html"] + NOTES
-            + [ROOT / "server" / "local-layer.html", ROOT / "server" / "reader" / "shell.html"])
+            + [ROOT / "server" / "local-layer.html"]
+            + sorted((ROOT / "server" / "reader").glob("*.html")))
 import subprocess, tempfile, os
 
 if not shutil.which("node"):
@@ -380,7 +387,8 @@ else:
             return "x"
 
     PAGES = [("TOKEN_BAR", S.TOKEN_BAR),
-             ("ADD_COURSE_BLOCK", S.ADD_COURSE_BLOCK),
+             ("ADD_COURSE_CTA", S.ADD_COURSE_CTA),
+             ("ADD_COURSE_PAGE", S.ADD_COURSE_PAGE),
              ("IMPORT_BLOCK", S.IMPORT_BLOCK),
              ("SETTINGS_PAGE", S.SETTINGS_PAGE),
              ("HELP_PAGE", S.HELP_PAGE),

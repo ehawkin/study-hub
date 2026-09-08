@@ -42,7 +42,26 @@ def looks_like_mp4(path):
         return False
 
 
-def fetch_one(doc, entry, dest, force=False):
+def fetch_one(doc, entry, dest, force=False, opener=urllib.request.urlopen):
+    """One recording onto disk, or an exception. Never a partial file.
+
+    🔴 **A SHORT READ IS A FAILURE, AND UNTIL 2026-09-04 IT WAS A SUCCESS.** The
+    loop below stops on the first empty read, which is exactly what a dropped
+    connection produces, so a truncated download and a complete one were the same
+    event. **Neither guard afterwards could tell them apart**: the `ftyp` box is
+    at the START of a file, so a truncated MP4 is still an MP4, and the 1 MB floor
+    passes anything bigger than about twenty seconds of video.
+
+    ⚠️ **Measured in the sibling module the same day**: `W4-T1-P1` arrived as 10.2
+    minutes of a 30-minute lecture and produced perfectly well-formed captions for
+    the first third of it, with nothing red anywhere. **This function feeds
+    `video_captions` through `courses/<C>/videos/<DOC>.mp4`**, which that module
+    uses in preference to fetching, so the same silence reached the same place by
+    a second road.
+
+    🟢 **The fix compares against what the SERVER said it was sending**, which is
+    the only witness not downstream of the fault.
+    """
     if dest.exists() and not force:
         if looks_like_mp4(dest):
             return "kept", dest.stat().st_size
@@ -50,16 +69,31 @@ def fetch_one(doc, entry, dest, force=False):
     tmp = dest.with_suffix(".part")
     req = urllib.request.Request(stream_url(entry),
                                  headers={"User-Agent": "study-hub-fetch"})
-    with urllib.request.urlopen(req, timeout=60) as r, tmp.open("wb") as f:
-        while True:
-            chunk = r.read(CHUNK)
-            if not chunk:
-                break
-            f.write(chunk)
-    if tmp.stat().st_size < 1 << 20 or not looks_like_mp4(tmp):
-        size = tmp.stat().st_size
+    with opener(req, timeout=60) as r:
+        declared = r.headers.get("Content-Length") if hasattr(r, "headers") else None
+        with tmp.open("wb") as f:
+            while True:
+                chunk = r.read(CHUNK)
+                if not chunk:
+                    break
+                f.write(chunk)
+    size = tmp.stat().st_size
+    if size < 1 << 20 or not looks_like_mp4(tmp):
         tmp.unlink()
         raise RuntimeError("%s: got %d bytes that are not an MP4" % (doc, size))
+    if declared is not None:
+        try:
+            want = int(declared)
+        except (TypeError, ValueError):
+            want = None
+        if want is not None and size != want:
+            # 🔴 The partial file is REMOVED rather than left with a `.part`
+            # suffix, so the next run cannot mistake it for progress.
+            tmp.unlink()
+            raise RuntimeError(
+                "%s: the server said %d bytes and %d arrived. A truncated "
+                "recording is worse than a missing one, because everything "
+                "downstream treats it as the whole lecture." % (doc, want, size))
     tmp.rename(dest)
     return "fetched", dest.stat().st_size
 

@@ -1,0 +1,42 @@
+<script id="sv-player-clock">
+/* The lecture's clock. Served INTO a mirrored package's own document, before
+   `data/player.js`, and only when the URL asked for `?clock_rate=`.
+
+   The vendor player keeps time by one function, captured at parse time:
+   `var Pa = Date.now || function () { return +new Date }` (the name varies per
+   exporter build, the shape does not; measured on all seven builds behind the
+   38 packages, see plans/11). Its ticker publishes differences between two
+   calls of it and its engine adds those differences to the slide clock, so a
+   `Date.now` that runs at 1.5x is a lecture that runs at 1.5x, slides and
+   voice together, with nothing in the timing blob rewritten and no reload.
+
+   THIS RUNS BEFORE THE PLAYER IS PARSED, which is the whole reason it is a
+   separate file with a separate anchor: the capture happens as `player.js` is
+   evaluated, so a replacement that arrives after it is never seen.
+
+   It starts at rate 1 and changes nothing until the control strip, which knows
+   the rate the reader asked for, calls `setRate`. So a document with this and
+   no strip plays exactly as it always did. `setRate` re-bases rather than
+   scales from the start, so the clock never jumps: the moment of the change is
+   the same instant on both sides of it. Integers, like the real thing. */
+(function () {
+  if (window.__svClock) return;
+  var real = Date.now;
+  if (typeof real !== "function") return;
+  var rate = 1, baseReal = real(), baseVirtual = baseReal;
+  function now() { return Math.floor(baseVirtual + (real() - baseReal) * rate); }
+  window.__svClock = {
+    real: real,
+    now: now,
+    rate: function () { return rate; },
+    setRate: function (r) {
+      if (typeof r !== "number" || !isFinite(r) || r <= 0) return false;
+      baseVirtual = now();
+      baseReal = real();
+      rate = r;
+      return true;
+    }
+  };
+  Date.now = now;
+})();
+</script>
