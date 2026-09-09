@@ -1,5 +1,5 @@
 {
- "version": "2026.09.08+5a46ad2",
+ "version": "2026.09.09+58a8bef",
  "url": "https://github.com/ehawkin/study-hub/releases/latest",
- "note": "Captions, the whole-lecture clock with no reload, both iOS fixes (speed and captions), and highlight colour mixing. First release since 2026-08-30."
+ "note": "v2026.09.08 could not start: two files the server needs were missing from the download. This one was unpacked and started before it was published."
 }

@@ -499,7 +499,19 @@ cannot be written for a paper nobody has identified.
 7. 🔴 **Look at the drawn result, not the markup. This is a required step.**
    Labels collide, arrows pass under text, and text clips at the edges of a
    viewBox. None of that is visible in the source, and roughly one figure in four
-   has such a defect. Verify by screenshotting the rendered page in a browser.
+   has such a defect. The tool is:
+
+   ```
+   python3 server/figcheck.py <lesson> --serve
+   python3 server/figcheck.py --course <CODE> --serve   # a whole course
+   ```
+
+   It puts every figure on a page of its own, one page per theme, with an index,
+   and prints how many it found even when that number is zero. **Open every
+   figure in BOTH the light and the dark theme and look at it.**
+   ⚠️ It serves rather than writing files because `file://` is refused by browser
+   tooling. It does not load the reader's own interface, so it answers "is this
+   figure sound at the full column width" and not "at every width".
 8. 🔴 **The same applies to any page a tool rewrote.** A tool's own report of
    success is not evidence that it succeeded. If something reorganised, rotated
    or re-processed a page, look at the page: a real case had a tool rotate an

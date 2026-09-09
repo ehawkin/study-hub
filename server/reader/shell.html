@@ -213,9 +213,28 @@
      92 wipe · 95 token bar · 96 mini · 97 palette · 98 TOAST · 2147483647 watchdog.
      🔴 Below the watchdog on purpose: a bar saying the page did not load must never
      be covered by a toast about highlights. */
+  /* 🔴 IT IS CENTRED BY TRANSFORM AND HAD NO WIDTH LIMIT, so a long message
+     sized itself to one line and was clipped at BOTH ends the moment that line
+     was wider than the window. Measured at 13.5px in a real browser, and the
+     two widest are not new: "This page was loaded before the study server was
+     updated..." is 600px and "That lesson is not on this machine..." is 483px,
+     against 166px for "Bookmark removed."
+
+     `min(92vw, 560px)` rather than a single number: 92vw is what keeps it
+     inside a narrow window (EH's reading pane and the popped-out materials
+     window are exactly where these are read), and 560px stops a wide screen
+     turning a one-line message into a banner. `white-space` is left at its
+     default so the text WRAPS at that limit instead of being cut; the pill
+     grows a line and stays a pill.
+
+     ⚠️ THE CONTROL, and it is the half that could go wrong: a short toast must
+     be unchanged. `max-width` is a cap, not a width, so "Bookmark removed."
+     still sizes to its own 166px and does not become a 560px band. A test
+     drives both cases rather than trusting that sentence. */
   .hl-toast {
     position: fixed; left: 50%; transform: translateX(-50%); bottom: 26px; z-index: 98;
     pointer-events: none;
+    max-width: min(92vw, 560px);
     background: var(--ink); color: var(--paper); font: 13.5px var(--body);
     padding: 9px 17px; border-radius: 999px; box-shadow: 0 6px 20px rgba(0,0,0,.25);
   }

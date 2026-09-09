@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "server"))
 import study_server as S
 import split_lessons as SPLIT
 from doi_sidecar import DOI_SIDECAR, load_doi_exceptions
+import doi_links as DOILINK
 
 
 def crossref_agent():
@@ -86,6 +87,18 @@ def as_served(p, src=None):
     if not SPLIT.is_content_file(src):
         return src
     return S.compose_lesson(CFG, src, p.name)
+
+# 🔴 THE FLOOR FOR "THIS LESSON WAS NEVER WRITTEN", and not a quality bar.
+# `new_lesson.py` truncated a long title's slug mid-word, the write went to the
+# untruncated path, nothing was created, and `verify_notes --dois` printed
+# ALL CHECKS PASS over a 137-character scaffold. It was right to: every check in
+# this file is about what a lesson CONTAINS, and none of them fires on a lesson
+# that contains nothing. An empty body has no DOI to disagree with, no block to
+# mis-number and no house-style slip.
+# ⚠️ Deliberately far below any real lesson so it can never be read as a length
+# opinion: measured 2026-09-08 across all 98 lessons in this repo, the smallest is
+# 62 blocks and 996 words. This catches "never written", not "short".
+BODY_MIN_BLOCKS, BODY_MIN_WORDS = 5, 50
 
 PAGE_TAGS = {"p", "li", "h1", "h2", "h3", "h4", "dd", "dt", "figcaption",
              "blockquote", "td", "th"}
@@ -182,7 +195,13 @@ for p in NOTES:
                 print("   first divergence at %d:\n     server %r\n     page   %r" % (i, a[:70], b[:70]))
                 break
     words = sum(len(t.split()) for t in srv)
-    print("  %-58s %s  blocks %4d  words %5d" % (p.name[:58], "OK " if ok else "BAD", len(srv), words))
+    empty = len(srv) < BODY_MIN_BLOCKS or words < BODY_MIN_WORDS
+    if empty:
+        fails.append("%s: no body, %d blocks and %d words against a floor of %d and %d"
+                     % (p.name, len(srv), words, BODY_MIN_BLOCKS, BODY_MIN_WORDS))
+    print("  %-58s %s  blocks %4d  words %5d%s"
+          % (p.name[:58], "OK " if ok else "BAD", len(srv), words,
+             "  🔴 NO BODY" if empty else ""))
 
 print("\n=== marks ===")
 total = good = 0
@@ -530,23 +549,52 @@ if "--dois" in sys.argv:
         print("  SIDECAR  %s" % _problem)
         fails.append("doi sidecar")
 
+    # 🔴 The reader lives in `doi_links` because `corrcheck.py` has to see exactly
+    # the same set: a DOI this gate checks and that sweep misses is a citation
+    # nobody has ever looked at. It carries the measurement of what the old
+    # source-reading pattern hid, and why stripping tags alone would not have been
+    # enough.
     seen = collections.OrderedDict()
+    unreadable = 0
     for p in NOTES:
-        for doi, lab in re.findall(r'href="https://doi\.org/([^"]+)"[^>]*>([^<]{1,70})</a>', p.read_text()):
-            seen.setdefault(doi, set()).add(re.sub(r"\s+", " ", lab).strip())
+        _, missed = DOILINK.collect([p.read_text()], into=seen)
+        unreadable += missed
 
-    print("\n=== DOI records (%d distinct, %d skipped) ===" % (len(seen), len(SKIP)))
+    print("\n=== DOI records (%d distinct, %d skipped, %d links unreadable) ==="
+          % (len(seen), len(SKIP), unreadable))
+    # 🔴 A count printed and not failed is the shape this whole check was fixed
+    # for: a number in a wall of output that reads as good news. An unreadable
+    # link is an UNCHECKED CITATION, which is the harm, so it fails. The corpus
+    # is at zero today, so this costs nothing until
+    # something genuinely breaks.
+    if unreadable:
+        print("  🔴 %d doi.org links could not be read as a link+label pair, so "
+              "they were NOT checked" % unreadable)
+        fails.append("doi %d unreadable links" % unreadable)
     for doi, labels in seen.items():
         if doi in SKIP:
             continue
-        try:
-            rec = json.load(urllib.request.urlopen(urllib.request.Request(
-                "https://api.crossref.org/works/" + urllib.parse.quote(doi),
-                headers={"User-Agent": crossref_agent()}),
-                timeout=25))["message"]
-        except Exception as exc:
-            print("  NOT IN CROSSREF  %-38s %s" % (doi, sorted(labels)[0]))
-            fails.append("doi %s" % doi)
+        # 🔴 ASK TWICE, AND SAY WHICH WAY IT FAILED. One 25-second ask, treated as
+        # "this paper does not exist", turned four slow responses into four
+        # findings when this gate was first run over the corpus (see
+        # doi_links.why_not). The second ask is patient rather than eager: a 404
+        # is an answer and is not retried.
+        rec = err = None
+        for patience in (25, 60):
+            try:
+                rec = json.load(urllib.request.urlopen(urllib.request.Request(
+                    "https://api.crossref.org/works/" + urllib.parse.quote(doi),
+                    headers={"User-Agent": crossref_agent()}),
+                    timeout=patience))["message"]
+                break
+            except Exception as exc:
+                err = DOILINK.why_not(exc)
+                if err[0] == "NOT IN CROSSREF":
+                    break
+        if rec is None:
+            print("  %-16s %-38s %s (%s)"
+                  % (err[0], doi, sorted(labels)[0][:60], err[1]))
+            fails.append("doi %s %s" % (doi, err[1]))
             continue
         # Drop empty family names. An editorial notice (a retraction, a corrigendum
         # by "The Editors") carries an author entry with no family name, which used to
@@ -562,8 +610,10 @@ if "--dois" in sys.argv:
         # Comparing only the label's first token made "St John-Smith et al. 2009" look
         # like a paper by somebody called St. Compare the whole author portion, meaning
         # everything before "et al" or the year, and accept containment either way.
+        # Labels arrive from `doi_links` with entities already decoded, so the
+        # ampersand between two names is "&" and no longer "&amp;".
         auth = deacc(re.split(r"\bet al\b|(?:19|20)\d{2}", lab)[0]
-                     .replace("&amp;", " ").strip(" ,.&"))
+                     .replace("&", " ").strip(" ,.&"))
         laby = re.search(r"(19|20)\d{2}", lab)
         ok_a = (not fam) or any(f.lower() in auth.lower() or auth.lower() in f.lower()
                                 for f in fam)

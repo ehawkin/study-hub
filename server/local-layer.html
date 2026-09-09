@@ -1080,6 +1080,43 @@ What it adds when the server is there:
   .sv-nav .sv-navend:last-child { text-align: right; }
   @media print { .sv-nav { display: none !important; } }
 
+  /* ---------- the update / restart notice ----------
+
+     🔴 QUIET IS A REQUIREMENT, not a taste: this sits on a reading surface, and
+     a reader who has to dismiss something before reading learns to dismiss the
+     surface. So it is one line, the muted colour, no fill, and it never moves
+     the lesson: `margin` above the top nav, no fixed position, no animation.
+
+     🔴 The two producers get DIFFERENT weights on purpose. A restart owed means
+     the change you already made is not in effect, so it carries the accent rule
+     and the action. A new version means somebody else has something better
+     whenever you like, so it is a sentence and a link. Giving them the same
+     weight is what makes the urgent one ignorable. */
+  .sv-notice {
+    display: flex; align-items: baseline; gap: 10px;
+    margin: 0 0 18px; padding: 9px 12px;
+    border: 1px solid var(--rule); border-left-width: 3px; border-radius: 7px;
+    font-size: .92em; color: var(--muted); background: none;
+  }
+  .sv-notice[hidden] { display: none; }
+  /* 🔴 The two weights, in the project's own tokens (`lesson-base.css`), so
+     both follow the reader's light or dark choice: the quiet one is `--muted`
+     text on a `--rule` edge; the urgent one is `--ink` text on a `--regulated`
+     edge, which is the palette's own "this is in hand" green and is already
+     used for the states the reader is meant to notice. */
+  .sv-notice-restart { border-left-color: var(--regulated); color: var(--ink); }
+  .sv-notice-txt { flex: 1 1 auto; min-width: 0; }
+  .sv-notice-act {
+    flex: 0 0 auto; background: none; border: 1px solid var(--rule); border-radius: 6px;
+    color: inherit; font: inherit; padding: 2px 9px; cursor: pointer;
+  }
+  .sv-notice-act:hover { border-color: var(--muted); }
+  .sv-notice-x {
+    flex: 0 0 auto; background: none; border: 0; color: var(--muted);
+    font: inherit; line-height: 1; padding: 2px 4px; cursor: pointer;
+  }
+  @media print { .sv-notice { display: none !important; } }
+
   /* ---- tables that scroll sideways should say so ----
 
      Asked 2026-08-13: "so things are visible and tables are easy to scroll
@@ -2436,10 +2473,30 @@ What it adds when the server is there:
   /* Below the panels (70 and 72) on purpose: at a narrow width a panel is
      full-screen and is meant to cover this. Above the note, and below the
      settings sheet (88) which opens out of it. */
+  /* 🔴 IT WRAPS, AND THAT IS THE WHOLE FIX. EH, 2026-09-03: "if I compress
+     that left section, the red-watched stars and light bulbs completely
+     disappear. Wouldn't it make sense for them to get moved as one, to a second
+     line underneath where it says 'Courses' and the name of the course?"
+
+     It used to be a fixed 52px row with no wrap, and four things were dropped
+     out of it as it narrowed (the Week/Topic/Part text at 1048, Read and
+     Watched at 858, the tools at 730, the bulbs and stars at 509). He reported
+     the last of those; the other three had never been reported because nobody
+     knew they were there to miss. EH ruled the scope: "go ahead and carry all
+     four."
+
+     `height` becomes `min-height` because the bar now has as many rows as it
+     needs, and `--sv-head-h` is measured from the real box by
+     `trackHeadHeight()` rather than being a constant this file promises to keep
+     true. That token pads the body and positions the menu, so a header that
+     grew while the token stood still would slide the top of the lesson under
+     it: the join most likely to be missed, because the header looks right while
+     the page beneath it is wrong. */
   .sv-head {
     position: fixed; top: 0; left: 0; right: 0; z-index: 62;
-    box-sizing: border-box; height: var(--sv-head-h);
-    display: flex; align-items: center; gap: 13px; padding: 0 14px;
+    box-sizing: border-box; min-height: var(--sv-head-h);
+    display: flex; align-items: center; flex-wrap: wrap;
+    gap: 13px; row-gap: 7px; padding: 7px 14px;
     background: var(--surface); border-bottom: 1px solid var(--rule);
     /* 🔴 The question is whether the row fits in the HEADER, which is not the
        same as whether it fits in the viewport, and a media query can only ask
@@ -2482,8 +2539,23 @@ What it adds when the server is there:
      Sits between the crumb and the tools, which is the one part of the header
      that is empty at every width. Hidden below 700px, where the header already
      collapses to a burger and there is no room for ten more targets. */
+  /* 🔴 The group that must break AS ONE, which is the load-bearing half of
+     what EH asked for: Read, Watched, the bulbs and the stars are one element
+     and one line. A wrap that left the stars on row 1 and the bulbs on row 2
+     would be a worse bug than the one he reported, because it would look
+     deliberate. `flex-wrap: nowrap` says so to the browser and a test says so
+     to the next editor. */
   .sv-headrate { display: inline-flex; align-items: center; gap: 8px;
-                 margin-left: 12px; }
+                 flex-wrap: nowrap; margin-left: 12px; }
+  /* The second line: the Week/Topic/Part text and the controls group, in that
+     order. It sits inline while the bar is wide, and takes a whole line of its
+     own once the container is too narrow to hold everything on one, which puts
+     it directly under "Courses" and the course name, his own placement.
+     `flex-wrap` on THIS element (rather than on the group inside it) is what
+     lets a genuinely narrow phone give the key its own line without ever
+     splitting the controls. */
+  .sv-headline2 { display: inline-flex; align-items: center; flex-wrap: wrap;
+                  gap: 8px; row-gap: 6px; min-width: 0; }
   .sv-headrate .sv-rgrp { display: inline-flex; }
 
   /* 🔴 Read and Watched on the same line, EH 2026-08-30: "when I'm in the
@@ -2667,18 +2739,32 @@ What it adds when the server is there:
      🔴 At a 330px header the crumbs begin to cut the name and there is nothing
      left in the row to spend on it. That is the honest floor of this design,
      not a width anybody reads at. */
-  @container svhead (max-width: 1048px) { .sv-headkey { display: none; } }
-  /* Then the flags, together, one selector on the element that holds both, per
-     the entry: the scales keep the room, because five bulbs and five stars say
-     more at a glance than one of two toggles. */
-  @container svhead (max-width: 858px) { .sv-headflags { display: none; } }
-  /* 🔴 ...unless a panel is open, which is the very thing that made the header
-     narrow. `html.sv-panel-open` stands the four tools down (see the rule up at
-     the panel section), and they are ~316px of the row: measured with the chat
-     open at a 1087px window, the header is 647px and its content ends at 384.
-     Dropping the flags there would be answering a question the row is no longer
-     being asked, and they would blink out every time EH opened the chat. */
-  html.sv-panel-open .sv-headflags { display: inline-flex; }
+  /* 🔴 THIS RUNG USED TO HIDE THE KEY AND NOW MOVES THE WHOLE SECOND LINE.
+     1048 is the measured width at which the single row stopped fitting, so it
+     is the right width to stop trying to be a single row. Nothing is dropped
+     here: `order` puts the crumbs and the tools on row 1 and the line below
+     them, and `flex-basis: 100%` is what makes it a row rather than a wrap
+     that lands wherever it fits. */
+  @container svhead (max-width: 1048px) {
+    .sv-headcrumbs { order: 1; }
+    .sv-headnav, .sv-burger { order: 2; }
+    .sv-headline2 { order: 3; flex-basis: 100%; margin-left: 0; }
+    .sv-headrate { margin-left: 0; }
+  }
+  /* 🔴 THE FLAGS RUNG IS GONE, DELIBERATELY, and this comment is its headstone.
+     It read `@container svhead (max-width: 858px) { .sv-headflags { display:
+     none; } }`. Read and Watched now travel with the group on the second line,
+     which is where EH asked for them, and nothing in the header is hidden by
+     width any more except the tools, which become the Menu button and lose
+     nothing. */
+  /* 🔴 THE PANEL-OPEN EXCEPTION IS GONE WITH THE RULE IT EXCEPTED, and the
+     entry warned specifically against tidying it away without checking, so it
+     is checked here rather than deleted quietly. It read
+     `html.sv-panel-open .sv-headflags { display: inline-flex; }` and existed to
+     stop the flags blinking out every time EH opened the chat, because opening
+     a panel is itself what narrowed the header. Nothing hides the flags now, so
+     nothing needs to un-hide them; opening a panel makes the bar take a second
+     line instead, which is the behaviour the exception was reaching for. */
   /* 🔴 Then the scales, and this rule used to be `@media (max-width: 700px)`,
      which is the defect QA reported on 2026-08-30: a VIEWPORT query on an
      element inside a container, in a stylesheet whose own comment says "where
@@ -2687,8 +2773,14 @@ What it adds when the server is there:
      fired, and 286px of ratings were drawn straight through the breadcrumb.
 
      400 rather than something rounder because it is where the row actually
-     stops having space for them once the tools are a burger. */
-  @container svhead (max-width: 509px) { .sv-headrate { display: none; } }
+     stops having space for them once the tools are a burger.
+
+     🔴 THAT RULE IS NOW GONE, and this is the defect EH actually reported:
+     `@container svhead (max-width: 509px) { .sv-headrate { display: none; } }`
+     is what made the bulbs and stars "completely disappear" when he compressed
+     the pane. They wrap instead. ⚠️ The measurement above is kept because it is
+     still true and still useful: 509 is where a SINGLE row runs out of space
+     for them, which is why the row above stops being a single row at 1048. */
   /* 🔴 516, not the 450 that stood here. Measured the same way as the rest:
      with the four tools in the row it stops fitting at a 544px header, which is
      a 516px content box, and the old number let it overflow in silence over the
@@ -2706,16 +2798,24 @@ What it adds when the server is there:
      gets a vote: a 700px window with no panel open has a 700px header, which
      fits the key perfectly well. */
   @supports not (container-type: inline-size) {
-    @media (max-width: 1076px) { .sv-headkey { display: none; } }
-    @media (max-width: 886px) { .sv-headflags { display: none; } }
+    /* 🔴 The same two changes as above, in the same order: the second line
+       breaks rather than the key being dropped, and the flags and scales are
+       not dropped at all. The +28px on each number is the padding and gap the
+       viewport carries and the container does not. */
+    @media (max-width: 1076px) {
+      .sv-headcrumbs { order: 1; }
+      .sv-headnav, .sv-burger { order: 2; }
+      .sv-headline2 { order: 3; flex-basis: 100%; margin-left: 0; }
+      .sv-headrate { margin-left: 0; }
+    }
     @media (max-width: 758px) {
       .sv-headnav { display: none; }
       .sv-burger  { display: flex; }
     }
     /* No `.sv-crumbname` rung here either: the swap is JavaScript and runs
        whether or not the browser has container queries, so this floor has
-       nothing left to cover for it. */
-    @media (max-width: 537px) { .sv-headrate { display: none; } }
+       nothing left to cover for it. And no `.sv-headrate` rung: it is not
+       dropped at any width any more, here or above. */
   }
 
   /* ---- R19: the right-hand pane can be dragged wider ----
@@ -4942,6 +5042,78 @@ What it adds when the server is there:
        what happened and the way out is the link already under it. */
     function boxWidth(host) { return Math.max(120, host.clientWidth - 12); }
 
+    /* 🔴 THE READER'S PLACE, HELD AS A PAGE AND A FRACTION, never as a pixel
+       offset. EH reported this twice and reversed his own "not worth a
+       substantial fix" ruling to report it again: resizing the window while a
+       deck is open threw him back to slide one. The re-render below is correct
+       and stays; what was missing is that `show()` restored no position.
+
+       ⚠️ A PIXEL OFFSET IS THE WRONG THING TO STORE AND IT IS THE OBVIOUS ONE.
+       The re-render happens BECAUSE the width changed, and every page's height
+       changes with the width, so an offset in the old layout measures a page
+       that no longer has that height. A page number survives a width change
+       outright, and a fraction into that page survives it too, because a page
+       scales as a whole.
+
+       🟢 PURE, AND TAKING ROWS RATHER THAN A HOST, because this is the half an
+       off-by-one would live in and a browser is not available to find it in.
+       `rows` is `[{ top, height }]` in the scroller's own coordinates. */
+    function placeOf(rows, top) {
+      if (!rows || !rows.length) return null;
+      var i = 0;
+      for (var n = 0; n < rows.length; n++) {
+        /* The last page that STARTS at or above the reader's line. The 1px is
+           for the browser's own fractional scrollTop, not for luck. */
+        if (rows[n].top <= top + 1) i = n; else break;
+      }
+      /* 🔴 BELT AND BRACES AGAINST ONE CASE, and a mutation sweep on 2026-09-08
+         proved they are INDEPENDENTLY sufficient rather than one being
+         redundant: a page whose canvas has not been sized yet measures zero, and
+         `0 / 0` is NaN, which would go straight into `scrollTop`. The `|| 1`
+         stops the division; `!(into > 0)` (and not `into < 0`) catches the NaN
+         if the division happens anyway. Removing EITHER alone leaves the other
+         doing the work and no test goes red, which is exactly what the sweep
+         found. Both are kept: this is a number written into the reader's scroll
+         position, and the cost of the pair is two characters. */
+      var h = rows[i].height || 1;
+      var into = (top - rows[i].top) / h;
+      if (!(into > 0)) into = 0;
+      if (into > 1) into = 1;
+      return { page: i + 1, into: into };
+    }
+
+    /* The other direction. ⚠️ A deck with a different number of pages between
+       two renders is not the case this exists for, but the clamp is one line and
+       the alternative is landing at the top, which is the defect itself. */
+    function topFor(rows, keep) {
+      if (!keep || !rows || !rows.length) return 0;
+      var i = Math.min(Math.max(keep.page, 1), rows.length) - 1;
+      return rows[i].top + (keep.into || 0) * (rows[i].height || 0);
+    }
+
+    /* The DOM half, as thin as it goes. 🔴 `getBoundingClientRect` and not
+       `offsetTop`: `offsetTop` is measured from the nearest POSITIONED ancestor
+       and `.sv-pdf` does not position itself, so those numbers would be against
+       some other box entirely and would look plausible while being wrong. */
+    function rowsOf(host) {
+      var base = host.getBoundingClientRect().top - host.scrollTop;
+      var pages = host.querySelectorAll('.sv-pdfpage'), out = [];
+      for (var i = 0; i < pages.length; i++) {
+        var r = pages[i].getBoundingClientRect();
+        out.push({ top: r.top - base, height: r.height });
+      }
+      return out;
+    }
+
+    /* Returns what the browser ALLOWED, which is not always what was asked: the
+       first landing happens when the wanted page is the last one rendered, so
+       the scroller's range can still be short. The caller uses the answer to
+       tell "the reader has not moved" from "the reader has scrolled away". */
+    function putBack(host, keep) {
+      host.scrollTop = topFor(rowsOf(host), keep);
+      return host.scrollTop;
+    }
+
     /* 🔴 The pane is draggable (R19), and a viewer that keeps rendering at the
        width it first saw would be soft after every drag and wrong after a
        rotation. The re-render is debounced and only fires on a REAL change,
@@ -4962,7 +5134,10 @@ What it adds when the server is there:
              is what makes superseding safe, so there is nothing left to protect
              here. A browser found both halves of this. */
           ro.disconnect();
-          show(host, src);
+          /* 🔴 READ BEFORE THE RENDER, because `show()` starts by emptying the
+             box: after that there are no pages to measure and `scrollTop` is
+             already 0. This is the only moment the reader's place exists. */
+          show(host, src, placeOf(rowsOf(host), host.scrollTop));
         }, 300);
       });
       ro.observe(host);
@@ -4970,7 +5145,9 @@ What it adds when the server is there:
          has moved on to another view takes its box out of the document with it. */
     }
 
-    function show(host, src) {
+    /* `keep` is `{ page, into }` from `placeOf`, and is absent on a first
+       render, which is the case that must land at the top. */
+    function show(host, src, keep) {
       if (!can()) return Promise.resolve(false);
       /* Every render carries a number, and a render whose number has been
          superseded stops drawing. Without it a re-render started by a drag draws
@@ -4994,6 +5171,9 @@ What it adds when the server is there:
         var width = boxWidth(host);
         watch(host, src, width);
         var chain = Promise.resolve();
+        /* Clamped against THIS deck rather than the last one. */
+        var want = keep ? Math.min(Math.max(keep.page, 1), doc.numPages) : 0;
+        var landed = null;
         for (var n = 1; n <= doc.numPages; n++) {
           (function (i) {
             chain = chain.then(function () {
@@ -5003,11 +5183,31 @@ What it adds when the server is there:
               return doc.getPage(i).then(function (page) {
                 if (!mine()) return null;
                 return drawPage(mod, page, host, dpr, width, i, doc.numPages);
+              }).then(function (drawn) {
+                /* 🟢 LAND AS SOON AS THE WANTED PAGE EXISTS, not when the deck
+                   finishes. Pages are drawn in order, so everything ABOVE the
+                   reader is already final, and everything added afterwards goes
+                   BELOW and moves nothing. Waiting for the last page of a
+                   60-slide deck would leave them staring at slide one for
+                   seconds, which is the defect wearing a slower hat. */
+                if (mine() && i === want) landed = putBack(host, keep);
+                return drawn;
               });
             });
           }(n));
         }
-        return chain.then(function () { return true; });
+        return chain.then(function () {
+          /* Once more, and ONLY if nobody has scrolled since. When the wanted
+             page was the last one rendered, the scroller's range stopped at its
+             bottom and the browser clamped the offset; the rest of the deck has
+             arrived now and the range is real. A reader who has moved in the
+             meantime is left exactly where they are: being yanked back is worse
+             than being 40px off. */
+          if (mine() && landed !== null && Math.abs(host.scrollTop - landed) < 2) {
+            putBack(host, keep);
+          }
+          return true;
+        });
       }).catch(function (e) {
         console.error('[study] could not show this deck:', e);
         say(host, 'This file could not be opened here. The arrow above opens it ' +
@@ -6172,6 +6372,144 @@ What it adds when the server is there:
     nav.innerHTML = side('prev', '‹', 'back') + side('next', '›', 'fwd');
   }
 
+  /* ---------- one notice, two producers ----------
+
+     EH, 2026-09-01: "it should be up top, kind of a notification. Maybe it
+     still stays in the findable place but there is also a notification. Maybe
+     something similar happens when there is a newer version of the software
+     available." And 2026-09-07: "that item about the reader showing when it is
+     time to update to the latest version off of GitHub: let us have Coder
+     actually implement that right now."
+
+     🟢 THIS IS A CONNECTION, NOT A FEATURE. Both halves were already built and
+     neither was surfaced: `update_status()` has computed {newer, latest, url,
+     note} against the release feed since the kit shipped, cached half a day,
+     and `restart_status()` compares the running build id with the one on disk.
+     The reader never asked either. So this is wire, and the smallness is the
+     point.
+
+     🔴 THE CONTROL STAYS WHERE IT IS. The Relaunch button is unconditional in
+     Settings (his own R16) and is not duplicated here: the notice OPENS
+     Settings and focuses it. Two restart implementations would drift the first
+     time one was touched, and this file has been bitten by exactly that before
+     ("moved, not mirrored", the marks buttons).
+
+     🔴 NO BLOCK-LEVEL TAG IN HERE. Marks anchor to the index of a block inside
+     `.wrap` (p, li, h1-h4, dd, dt, figcaption, blockquote, td, th), so a single
+     <p> in this line would renumber every block after it and silently move
+     every highlight on the page. aside, span, a and button are invisible to
+     that count, which is why the markup below looks the way it does.
+
+     🔴 IT MUST FAIL SILENT. No token, no network, a rate-limited feed, an
+     unreadable build id and a kit with no update URL configured must all render
+     as nothing at all. "We could not check for updates" is noise about our own
+     plumbing, and a recipient reading on a train must see an ordinary page. The
+     server already answers `check: "off"` / `"unreachable"` for those; the only
+     thing this side has to do is treat everything it does not recognise as
+     silence. */
+
+  var NOTICE_KEY = 'kcl-study-notice-seen';
+
+  function noticeSeen() {
+    try { return JSON.parse(window.localStorage.getItem(NOTICE_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+
+  function noticeDismiss(kind, token) {
+    /* 🔴 Keyed to the STATE, never to the notice. Dismissing "relaunch for
+       c1291f1f" remembers that build id, so the line stays gone until the code
+       on disk changes again and then returns on its own. A boolean "dismissed"
+       would silence the next real one, which is the failure that makes a
+       notification surface worthless. */
+    var m = noticeSeen();
+    m[kind] = token;
+    try { window.localStorage.setItem(NOTICE_KEY, JSON.stringify(m)); } catch (e) {}
+  }
+
+  function noticeFor(d) {
+    /* The server's answer in, one {kind, token, text, act, href} or null out.
+       Pure, so the decision can be driven in a test without a DOM. */
+    if (!d || d.ok === false) return null;
+    if (d.restart_owed === true && d.disk_build) {
+      return { kind: 'restart', token: String(d.disk_build),
+               text: 'The server has been updated on this machine, and this page '
+                   + 'is still being served by the version that was running '
+                   + 'before. Relaunch it to load the change.',
+               act: 'Open Settings' };
+    }
+    /* ⚠️ Second, never both at once, and never instead of the first. A restart
+       owed is about work already on the disk; an update is about work that is
+       not. Stacking them would put the quieter sentence next to the urgent one
+       and teach the reader to skim both. */
+    if (d.check === 'on' && d.newer === true && d.latest) {
+      return { kind: 'update', token: String(d.latest),
+               text: 'A newer version of Study Hub is available ('
+                   + String(d.latest).split('+')[0] + ').'
+                   + (d.note ? ' ' + String(d.note) : ''),
+               href: String(d.url || '') };
+    }
+    return null;
+  }
+
+  function showNotice(n) {
+    if (!n) return null;
+    if (noticeSeen()[n.kind] === n.token) return null;
+    var wrap = document.querySelector('.wrap');
+    if (!wrap) return null;
+    var box = document.createElement('aside');
+    box.className = 'sv-notice sv-notice-' + n.kind;
+    box.setAttribute('role', 'status');
+    var txt = document.createElement('span');
+    txt.className = 'sv-notice-txt';
+    txt.textContent = n.text;
+    box.appendChild(txt);
+    if (n.href) {
+      var a = document.createElement('a');
+      a.className = 'sv-notice-act';
+      a.href = n.href;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = 'What changed';
+      box.appendChild(a);
+    } else if (n.act) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sv-notice-act';
+      b.textContent = n.act;
+      b.addEventListener('click', function () {
+        /* The one Relaunch button, reached rather than copied. */
+        var gear = document.querySelector('.sv-gear');
+        if (gear) gear.click();
+        var btn = document.getElementById('svRestart');
+        if (btn && btn.focus) btn.focus();
+      });
+      box.appendChild(b);
+    }
+    var x = document.createElement('button');
+    x.type = 'button';
+    x.className = 'sv-notice-x';
+    x.setAttribute('aria-label', 'Dismiss');
+    x.textContent = '\u00d7';
+    x.addEventListener('click', function () {
+      noticeDismiss(n.kind, n.token);
+      if (box.parentNode) box.parentNode.removeChild(box);
+    });
+    box.appendChild(x);
+    wrap.insertBefore(box, wrap.firstChild);
+    return box;
+  }
+
+  function checkNotice() {
+    /* 🔴 ONE call per page load, and no timer. The network round trip lives on
+       the SERVER side of this, cached there for half a day, so a reader opening
+       twenty lessons makes twenty local requests and at most one request to
+       GitHub. A timer here would also break `test_sidecar_loaded.py`, which
+       asserts this file schedules nothing on an interval anywhere. */
+    return api('/api/update').then(function (r) {
+      return showNotice(noticeFor(r && r.body));
+    })['catch'](function () { return null; });
+  }
+
   (function installNav() {
     var wrap = document.querySelector('.wrap');
     if (!wrap) return;
@@ -6201,6 +6539,12 @@ What it adds when the server is there:
       fillNav(bottom, d);
       top.hidden = bottom.hidden = false;
     });
+    /* 🔴 AFTER the nav is in, because the notice inserts itself at the top of
+       `.wrap` and the reader should meet it above the lesson rather than
+       between the lesson and its own navigation. Fire and forget: it resolves
+       to null and renders nothing on every failure path, and nothing else in
+       the page waits on it. */
+    try { checkNotice(); } catch (e) {}
   }());
 
   /* ---------- tables that scroll sideways say so ----------
@@ -6259,6 +6603,101 @@ What it adds when the server is there:
      already carries overflow-x:auto in every lesson, so like the tables this
      adds the affordance and never the scrolling. One list, because the two
      behave identically once they overflow; only the aria-label differs. */
+  /* ---------- the nine panes that scroll DOWN say so out loud ----------
+
+     🔴 THE DEFECT, filed by the coder that shipped the visual half and built
+     here: `4393833` gave nine scrolling panes a band at the bottom that means
+     "there is more below", and it is VISUAL ONLY. A keyboard user and a screen
+     reader user get nothing at all. **Discovery is EH's actual complaint**, so
+     this is the same defect for a different reader rather than an
+     accessibility nicety bolted on afterwards.
+
+     🟢 THE VOCABULARY IS NOT INVENTED HERE. `updateTableScroll()` above marks
+     its horizontal scrollers `tabindex="0"`, `role="region"` and labels them
+     ", scrolls sideways". This is that, turned ninety degrees, with the same
+     three decisions taken the same way, so a reader who learns one knows the
+     other.
+
+     🔴 WHY THIS CANNOT RIDE ON A CLASS THE WAY THE VISUAL BAND DOES. The band
+     is pure CSS and holds no state: two background layers, one `local` and one
+     `scroll`, which coincide at the end of the content ("truthful by
+     construction, no scroll listener, no state, no layout"). There is nothing
+     to read. So the announcement asks the same question the browser asks when
+     it decides to paint a scrollbar: `scrollHeight - clientHeight > 1`. ⚠️ One
+     pixel of tolerance for the same reason the horizontal case takes it:
+     sub-pixel content can leave a pane a fraction over on a pane that visibly
+     fits.
+
+     🔴 THE STOP IS PERMANENT AND ONLY THE LABEL CHANGES, which is the horizontal
+     case's doctrine and it was settled by EH himself on 2026-08-15: what a
+     keyboard reader cannot live with is the Tab order moving under them. A stop
+     that appears and disappears as a chat thread grows, a panel opens or a
+     window resizes is exactly that. ⚠️ The entry's fourth property warns about
+     interposing nine new stops between a reader and the controls they came for,
+     and the reason this does not is that these panes live inside PANELS: a
+     `display: none` or `hidden` pane holds no focusable anything, so what is
+     actually added to the tab order at any moment is the one or two panes on
+     screen.
+
+     ⚠️ THE NINTH PANE IS THE PDF DECK and its witness is the same one used
+     here, which is why it can be in the set at all: it is excluded from the
+     painted band (its canvases are opaque and paint over a container
+     background) and gets the platform's own scrollbar instead, drawn from
+     exactly this condition. A probe that looked for the band's class would
+     report it missing while it is present. */
+
+  var SCROLLPANES = [
+    ['.sv-mini .out', 'Answer'],
+    ['.sv-body', 'Panel'],
+    ['.sv-edit .body', 'Note'],
+    ['.sv-filetext', 'File'],
+    ['.sv-panel .thread', 'Chat'],
+    ['.sv-hist', 'History'],
+    ['.sv-pal', 'Colours'],
+    ['.sv-set', 'Settings'],
+    ['.sv-pdf', 'Slides']
+  ];
+
+  function markPaneScroll(el, name) {
+    var over = false;
+    try { over = el.scrollHeight - el.clientHeight > 1; } catch (e) { return; }
+    /* The label tells the reader what to DO, not what the element is called,
+       which is why the horizontal one says "scrolls sideways" rather than
+       "horizontally scrollable region". Same register, one axis over. */
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('role', 'region');
+    el.setAttribute('aria-label', name + (over ? ', scrolls down' : ''));
+  }
+
+  function updatePaneScroll() {
+    for (var i = 0; i < SCROLLPANES.length; i++) {
+      var sel = SCROLLPANES[i][0], name = SCROLLPANES[i][1];
+      var found;
+      try { found = document.querySelectorAll(sel); } catch (e) { continue; }
+      for (var j = 0; j < found.length; j++) { markPaneScroll(found[j], name); }
+    }
+  }
+
+  (function installPaneScroll() {
+    /* The panes are built and rebuilt long after this runs (a panel opens, a
+       thread gains a message, a file is picked), so this cannot be a one-shot
+       loop over what exists today. `updateTableScroll` is already called from
+       the resize handler and from the pane-drag path; this rides both, and the
+       observer below catches the rest.
+
+       🔴 No timer: `test_sidecar_loaded.py` asserts this file schedules nothing
+       on an interval anywhere. */
+    try { window.addEventListener('resize', updatePaneScroll); } catch (e) {}
+    try {
+      if (window.MutationObserver) {
+        new window.MutationObserver(function () {
+          try { updatePaneScroll(); } catch (e) {}
+        }).observe(document.body, { childList: true, subtree: true });
+      }
+    } catch (e) {}
+    try { updatePaneScroll(); } catch (e) {}
+  }());
+
   (function installTableScroll() {
     tblwraps = Array.prototype.slice.call(
       document.querySelectorAll('.wrap .tblwrap, .wrap .figbox'));
@@ -6981,6 +7420,15 @@ What it adds when the server is there:
        was filed for it the same day; this one is text, and the text a screen
        reader gets is the one that actually explains the state. */
     chip.setAttribute('aria-label', SV_UNSAVED[kind][1]);
+    /* 🔴 `role="note"` because ARIA does not guarantee that a label on a
+       GENERIC element is exposed at all: a bare `<span>` with an `aria-label`
+       is allowed to be ignored, and then the sentence above reaches nobody.
+       QA raised this on 2026-09-01 and said honestly that they could not check
+       Chrome's accessibility tree from their harness. ⚠️ NOR CAN I: this is the
+       documented fix rather than a measured one, and it degrades gracefully
+       either way, because the chip's visible text is read when the label is
+       not. Verifying it in a real accessibility tree is still open. */
+    chip.setAttribute('role', 'note');
     row.insertBefore(chip, row.firstChild);
     row.classList.add('sv-unsavedrow');
   }
@@ -7551,19 +7999,49 @@ What it adds when the server is there:
      keying the untruncated text would send a base matching nothing and the
      server would adopt the reader's own row back as a stranger's. Pinned by a
      test that runs over-long text through both sides. */
+  /* ---------- cutting text the way the OTHER side cuts it ----------
+
+     🔴 `String.prototype.slice` counts UTF-16 CODE UNITS and Python's `[:n]`
+     counts CODE POINTS, so one astral character (an emoji, a few CJK extension
+     characters) before the cut makes the two sides spell one key two different
+     ways. Measured 2026-09-04, both languages, before this was written down:
+
+       node   "a😀b".slice(0, 2)   ->  "a\ud83d"   half an emoji
+       python "a😀b"[:2]           ->  "a😀"        the whole one
+
+     🔴 WHAT IT COSTS, and it is not a duplicate: the base is the only thing the
+     browser keys. The server keys the disk rows and the sent rows with its own
+     function, so a divergent base cannot fuse two rows. What it does is make a
+     REMOVAL SILENTLY FAIL TO LAND: the reader presses Remove, the save is
+     accepted, and the row is adopted straight back off the disk because the
+     server cannot find it in the base.
+
+     🟢 `Array.from` iterates by code point, so this is Python's cut exactly.
+     ⚠️ ALL THREE KEYS USE IT OR NONE DO. They were filed as one entry for that
+     reason: a fix that moved one of them would leave two spellings of the same
+     idea in one file, which is how the next reader gets it wrong. */
+  function cutText(t, n) {
+    var s = String(t || '');
+    /* The common case never allocates an array: a string with no astral
+       character has as many code units as code points, and if it is already
+       short enough there is nothing to cut. */
+    if (s.length <= n) return s;
+    return Array.from(s).slice(0, n).join('');
+  }
+
   function cmKey(x) {
     var n = ['c', 'i', 's', 'e'].map(function (f) {
       return (typeof x[f] === 'number' && isFinite(x[f])) ? Math.trunc(x[f]) : null;
     });
     if (n.indexOf(null) !== -1) return null;
-    var t = String(x.t || '').slice(0, 400);
+    var t = cutText(x.t, 400);
     if (!t) return null;
     return 'cm:' + n.join(':') + ':' + t;
   }
 
   function cbKey(x) {
     if (typeof x.c !== 'number' || !isFinite(x.c)) return null;
-    var t = String(x.t || '').slice(0, 300);
+    var t = cutText(x.t, 300);
     if (!t) return null;
     return 'cb:' + Math.trunc(x.c) + ':' + t;
   }
@@ -7852,7 +8330,7 @@ What it adds when the server is there:
      by a test that runs a >400-character block through both sides. */
   function bmKey(x) {
     if (typeof x.b !== 'number' || !isFinite(x.b)) return null;
-    var t = String(x.t || '').slice(0, 400);
+    var t = cutText(x.t, 400);
     if (!t) return null;
     return 'b:' + Math.trunc(x.b) + ':' + t;
   }
@@ -8816,7 +9294,102 @@ What it adds when the server is there:
      that: setPanelSpace already runs on resize and calls lockPage again, which
      re-asks matchMedia rather than remembering what it decided. */
 
+  /* ---------- keeping the reader's place across a reflow ------------------
+
+     🔴 EH, 2026-09-03, and his sentence is the acceptance test, kept verbatim
+     because the obvious paraphrase is the defect: *"when you resize the right
+     pane, the left obviously gets resized as well. What happens is you get moved
+     around in where you are in the lesson on the left... What should happen is
+     it should stay locked: the top of what's visible should stay the top of
+     what's visible."*
+
+     🔴🔴 PRESERVING `scrollY` IS THE BUG, NOT THE FIX, and it is what a builder
+     reaches for first. Narrow the column and the text REFLOWS into more lines,
+     so the same pixel offset lands earlier in the lesson. **The place moves
+     precisely because the number was kept.** What has to be kept is an ELEMENT.
+
+     🟢 MEASURED BEFORE BUILDING, because the entry said the mechanism was not:
+     the lesson is ordinary HTML in the main document and nothing re-renders it.
+     `lockPage()` refuses to lock on a wide screen, so the scroller here is the
+     WINDOW; the reflow comes from `html.sv-panel-open body { padding-right:
+     var(--sv-reserved) }`, which this function sets. That is why the anchor is
+     read at the top of `setPanelSpace` and restored at the bottom of it, rather
+     than anywhere near the grip.
+
+     ⚠️ NOT MEASURED, and nobody should assert it from documentation: whether the
+     browser's own `overflow-anchor` already fires on a container resize. Nothing
+     here sets or clears it. If it turns out to fight this, the escape hatch is
+     one declaration, and it needs a browser to decide. */
+  var SV_ANCHOR_SEL = '.wrap p, .wrap li, .wrap h1, .wrap h2, .wrap h3, .wrap h4,' +
+                      '.wrap dd, .wrap dt, .wrap figcaption, .wrap blockquote,' +
+                      '.wrap td, .wrap th';
+
+  /* Held for the duration of a drag. 🔴 The anchor is taken ONCE, at
+     pointerdown, and every frame restores THAT one: re-reading it each frame
+     anchors to whatever the previous frame's rounding produced, so a slow drag
+     ends somewhere a fast one does not. */
+  var heldAnchor = null;
+
+  /* The first block still on screen: the first whose BOTTOM is below the top
+     edge. Pure, and takes rects, because this is the arithmetic half. */
+  function anchorPick(rects) {
+    for (var i = 0; i < rects.length; i++) {
+      if (rects[i].bottom > 0) return i;
+    }
+    return -1;
+  }
+
+  /* What to remember about it. 🔴 TWO CASES, and the second is the common one:
+     a block that starts BELOW the top edge keeps its exact distance from it,
+     and a block the reader is already INSIDE keeps the FRACTION of itself that
+     has scrolled past. ⚠️ The fraction is deliberate and it is a deviation from
+     the shape the entry sketched, which said to keep the offset in both cases.
+     The reason is arithmetic rather than taste: a ten-line paragraph at 700px
+     becomes seventeen lines at 420px, and keeping the offset puts the top edge
+     five lines into a paragraph that now needs eight and a half lines to say the
+     same words. Keeping the offset preserves the LINE NUMBER; keeping the
+     fraction preserves the WORDS, and the reader is following words. */
+  function anchorFrom(rect) {
+    var h = rect.height || 0;
+    var into = h > 0 && rect.top < 0 ? Math.min(-rect.top / h, 1) : 0;
+    return { top: rect.top, into: into };
+  }
+
+  /* How far to scroll, given where that block has ended up. Positive scrolls
+     down. Pure for the same reason. */
+  function anchorDelta(a, rect) {
+    if (!a) return 0;
+    var want = a.into > 0 ? -(a.into * (rect.height || 0)) : a.top;
+    return rect.top - want;
+  }
+
+  function anchorNow() {
+    var els = document.querySelectorAll(SV_ANCHOR_SEL), rects = [];
+    for (var i = 0; i < els.length; i++) rects.push(els[i].getBoundingClientRect());
+    var i2 = anchorPick(rects);
+    /* 🔴 No anchor is a real answer and not an error: an empty lesson, or a
+       reader above the first block. Top stays top, and nothing divides by
+       nothing. */
+    if (i2 < 0) return null;
+    var a = anchorFrom(rects[i2]);
+    a.el = els[i2];
+    return a;
+  }
+
+  function anchorRestore(a) {
+    if (!a || !a.el) return false;
+    /* A block that has left the document since the anchor was taken. */
+    if (a.el.isConnected === false) return false;
+    var by = anchorDelta(a, a.el.getBoundingClientRect());
+    if (!by) return false;
+    window.scrollTo(0, (window.scrollY || window.pageYOffset || 0) + by);
+    return true;
+  }
+
   function setPanelSpace() {
+    /* 🔴 READ BEFORE THE REFLOW THIS FUNCTION CAUSES. During a drag the held
+       anchor is used instead, so the whole drag is measured from one reading. */
+    var hold = heldAnchor || anchorNow();
     var open = [];
     Array.prototype.forEach.call(
       document.querySelectorAll('.sv-panel, .hl-panel'),
@@ -8827,6 +9400,12 @@ What it adds when the server is there:
     r.style.setProperty('--sv-reserved', w + 'px');
     if (w) r.classList.add('sv-panel-open'); else r.classList.remove('sv-panel-open');
     lockPage(!!w);
+
+    /* 🟢 AFTER the reflow and AFTER the lock decision, and only when the page is
+       actually the scroller: a locked page has `position: fixed` on the body and
+       `lockPage` owns the scroll on both sides of that transition, so scrolling
+       here would fight it. */
+    if (pageLock === null) anchorRestore(hold);
 
     /* 🔴 The note reflows on that line, and the focus rectangles are absolutely
        positioned in PAGE coordinates measured when they were drawn. So they now
@@ -11192,6 +11771,8 @@ What it adds when the server is there:
       if (e.button) return;                 /* left button and touch only */
       e.preventDefault();
       try { g.setPointerCapture(e.pointerId); } catch (err) {}
+      /* 🔴 ONCE, here, and every frame of the drag restores this one. */
+      heldAnchor = anchorNow();
       document.documentElement.classList.add('sv-dragging');
     });
     g.addEventListener('pointermove', function (e) {
@@ -11203,6 +11784,9 @@ What it adds when the server is there:
     function end(e) {
       if (!document.documentElement.classList.contains('sv-dragging')) return;
       document.documentElement.classList.remove('sv-dragging');
+      /* Released here rather than in `setPanelSpace`, so that the LAST frame of
+         the drag is still measured from the reading the first frame used. */
+      heldAnchor = null;
       try { g.releasePointerCapture(e.pointerId); } catch (err) {}
       savePanelWidth();
     }
@@ -12627,8 +13211,10 @@ What it adds when the server is there:
      payload reads on the server as "deleted here", which is the one route by
      which a write may still remove a mark; a base naming keys this browser no
      longer stands behind is therefore the only way this change could destroy
-     anything. Absent means "I know of nothing", which adopts everything and
-     deletes nothing, and that is the direction to fail in. */
+     anything. Absent means "I know of nothing", which adopts everything the
+     server can NAME and deletes nothing it can name, and that is the direction
+     to fail in. (The qualifier is not pedantry: a row the server cannot key is
+     dropped by the merge and left to the shrink guard. `_unseen` says why.) */
   function svSetBase(keys) {
     /* 🔴 THIS WINDOW'S COPY MOVES TOO, and it moves FIRST. Every caller of this
        is this window's own push or its own restore, which are exactly the two
@@ -13927,6 +14513,66 @@ What it adds when the server is there:
       if (ok && chats.length) { chatFab.textContent = 'Chat ' + chats.length; }
     });
 
+  /* ---------- a deletion in another window reaches this one ----------
+
+     🔴 THE BOUND THIS CLOSES, filed by the coder that shipped the two-window
+     fix and deliberately left out of it: `ba7f499` stopped two windows deleting
+     each other's marks, and it did NOT tell an open window that a deletion
+     happened elsewhere. The deletion was never lost, it was on disk instantly,
+     but the other window only learned of it at its next LOAD. That is the same
+     shape as the documented "UNKNOWN lasts one visit" bound: a staleness that
+     resolves on reload and costs nothing but confusion.
+
+     🟢 THE SIGNAL ALREADY EXISTED AND NOBODY WAS LISTENING. `setAgreed()` writes
+     `SYNC_KEY` to `localStorage` after every push the server accepts, and the
+     `storage` event fires in OTHER windows of the same origin, never in the one
+     that wrote. So the notification is free, it is per course AND per document
+     (`kcl-study-synced-<course><doc>`), and it cannot be heard by a window
+     reading a different lesson.
+
+     🔴 IT RE-RUNS THE LOAD PATH RATHER THAN DOING ANYTHING CLEVER, and that is
+     the whole safety argument. `restoreFromDisk(false)` is the code that already
+     knows when the local copy wins, when the disk wins, when the agreement is
+     UNKNOWN and must touch neither side, and when a deletion may be pruned. A
+     second, faster path here would be a second set of rules for the same
+     question, and the first one cost this project a unit to get right.
+
+     ⚠️ WHY IT CANNOT LOOP, and the entry asks for it in as many words. The
+     writer never hears its own event. A window that DOES hear one either drops
+     nothing (no push, no new event, and the chain stops) or prunes and pushes
+     once, which is a genuine change and produces exactly one more round in the
+     other windows, where it then drops nothing. **The terminating condition is
+     that a prune with nothing to prune writes nothing.**
+
+     🔴 `force` is FALSE, deliberately. The forced path replaces the collection
+     wholesale, which is the reader's own "Restore from disk" button and is not
+     something another window may trigger on their behalf. A window holding
+     unsaved local state is protected by the same branches that protect it at
+     load: with an UNKNOWN agreement it declines to touch either side. */
+  try {
+    window.addEventListener('storage', function (e) {
+      if (!e || e.key !== SYNC_KEY) return;
+      /* A cleared store fires with a NULL value and there is no push behind
+         it, so re-reading would be answering a question nobody asked. ⚠️
+         `undefined` is checked as well as `null`, and that is not belt and
+         braces: a real browser event always carries the property, so an event
+         WITHOUT it is something else entirely, and "something else" must not be
+         read as "a push happened". A test fires exactly that shape. */
+      if (e.newValue === null || typeof e.newValue === 'undefined') return;
+      try {
+        restoreFromDisk(false).then(function (r) {
+          /* 🔴 SILENT UNLESS SOMETHING ACTUALLY WENT. The reader did not ask for
+             this and most events change nothing on this page. A toast on every
+             sibling push would be noise about our own plumbing, which is the
+             same rule the update notice follows. */
+          if (r && r.why === 'pruned') {
+            S.toast('A highlight deleted in another window has been removed here too.');
+          }
+        });
+      } catch (x) {}
+    });
+  } catch (e) {}
+
   /* Restore before anything else can overwrite the file: if this browser has
      nothing and disk does, disk wins. Otherwise mirror what is here. */
   restoreFromDisk(false).then(function (r) {
@@ -14330,12 +14976,63 @@ What it adds when the server is there:
         '</span>';
     }
 
+    /* ---------- the page below has to know how tall this got ----------
+
+       🔴 `--sv-head-h` is not decoration: `html.sv-head-on body` pads the page
+       by it and `.sv-menu` hangs off it. It was a constant 52px, which was true
+       while the bar was a fixed single row and is not true now that it wraps.
+       A bar that grows while the token stands still slides the top of the
+       lesson underneath it, and the header looks perfectly right while it
+       happens, which is why the entry called this the join most likely to be
+       missed.
+
+       ⚠️ Measured from the real box rather than computed from a row count: the
+       row count is not knowable here (it depends on the container query, the
+       fonts, and whether the reader has a scrollbar), and a second copy of that
+       arithmetic would be one more thing to keep true.
+
+       🔴 The `< 1` guard is not tidiness. Writing the token changes the body's
+       padding, which can change the page's height, which can add or remove a
+       scrollbar, which changes the header's WIDTH and can therefore change its
+       height again: a loop with a real path through it. Only a change of a
+       whole pixel is written, so the loop cannot run on rounding alone. */
+    function trackHeadHeight(el) {
+      var last = 0;
+      function apply() {
+        var h = 0;
+        try { h = Math.ceil(el.getBoundingClientRect().height); } catch (e) { return; }
+        if (!h || Math.abs(h - last) < 1) return;
+        last = h;
+        try {
+          document.documentElement.style.setProperty('--sv-head-h', h + 'px');
+        } catch (e) {}
+      }
+      apply();
+      /* No timer: `test_sidecar_loaded.py` asserts this file schedules nothing
+         on an interval anywhere, and an observer is the right tool regardless.
+         The resize listener is the floor for a browser without one. */
+      try {
+        if (window.ResizeObserver) { new window.ResizeObserver(apply).observe(el); }
+        else { window.addEventListener('resize', apply); }
+      } catch (e) {
+        try { window.addEventListener('resize', apply); } catch (x) {}
+      }
+      return apply;
+    }
+
     var head = document.createElement('div');
     head.className = 'sv-head';
     head.innerHTML =
       crumbHtml +
-      '<span class="sv-headkey"></span>' +
-      rateHtml() +
+      /* 🔴 The key and the controls are ONE element now, because they are what
+         moves to the second line together when the bar cannot hold one row.
+         Wrapping them here rather than styling them into place separately is
+         what makes "as one" structural: there is no width at which the browser
+         can put half of this somewhere else. */
+      '<span class="sv-headline2">' +
+        '<span class="sv-headkey"></span>' +
+        rateHtml() +
+      '</span>' +
       '<nav class="sv-headnav" aria-label="This lesson\'s tools">' +
         '<button type="button" data-head="mat" aria-expanded="false">Materials</button>' +
         '<button type="button" data-head="chat" aria-expanded="false">Chat</button>' +
@@ -14359,6 +15056,7 @@ What it adds when the server is there:
         'Settings</button>';
 
     document.body.appendChild(head);
+    trackHeadHeight(head);
 
     /* ---------- the crumb shows the long name, or the short one ----------
 

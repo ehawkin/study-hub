@@ -4,14 +4,54 @@
 into proper lessons you can read, highlight, question and revise from, in your
 browser, on your own machine.
 
-Highlight anything in five colours. Write notes on a highlight or on nothing in
-particular. Turn a term into a flashcard and get a definition looked up for you.
-Bookmark a paragraph, a figure or a chat. Ask questions about the passage you
-just selected, with the lecture playing in the pane beside it.
+Play a lecture with its slides, at the speed you want, with captions in the
+lecturer's own words. Highlight anything in five colours. Write notes on a
+highlight or on nothing in particular. Turn a term into a flashcard and get a
+definition looked up for you, with a picture where the term is an anatomical
+structure. Bookmark a paragraph, a figure or a chat. Ask questions about the
+passage you just selected, with the lecture playing beside it.
+
+**Your reading list, summarised.** Study Hub collects the papers and chapters
+your module sets and writes a short account of each one: what it argues, what it
+measured, and what it does not establish. Every reference is checked against the
+published record, and if a paper has been corrected or retracted since it was set,
+you are told so where the paper is discussed rather than finding out later.
 
 **It all stays on your computer.** Your highlights and notes are files on your
 own disk, next to your lessons. Nothing is uploaded, there is no account, and
 there is nothing to pay for.
+
+---
+
+## Download it
+
+**You download ONE file. Everything comes inside it.** You do not download
+`server`, `courses`, or any individual file from this page: those are the
+source, and you do not need them.
+
+1. Go to the **[latest release](../../releases/latest)**.
+2. Under **Assets**, click **`study-hub.zip`**. It is about 1 MB.
+3. Double-click the downloaded zip. macOS unpacks it into a folder called
+   **`study-hub`**.
+4. **Move that folder somewhere you will find it again.** Your Documents folder
+   is a good place. Everything you make later lives inside it, so it is worth
+   putting somewhere deliberate rather than leaving it in Downloads.
+
+**What you just got, and it is all of it:**
+
+| Inside the folder | What it is |
+| --- | --- |
+| **`Start Study Hub.command`** | the thing you double-click to open the reader |
+| `START-HERE.html` | the same instructions as this page, to open in a browser |
+| `server/` | the reader itself. You never open this |
+| `courses/` | empty for now. Your lessons will land here |
+| `.claude/` | instructions Claude reads when it sets things up for you |
+
+**The folder is yours to keep.** Your lessons, your highlights and your notes all
+end up inside it, so back it up the way you back up anything else.
+
+> **Already unzipped it?** Skip to the next section. The rest of this page is
+> written for the folder you now have in front of you.
 
 ---
 
@@ -52,9 +92,10 @@ whoever gave you this how it went.
 
 You need two things:
 
-1. **Claude Desktop**, from <https://claude.ai/download>, and an account.
-2. **This folder**, somewhere you can find it again. Your Documents folder is
-   fine.
+1. **Claude**, from <https://claude.ai/download>, and an account. The free tier
+   is enough to try it; a paid one is better if you are going to write lessons.
+2. **The `study-hub` folder** you unzipped above, somewhere you can find it
+   again.
 
 Then:
 
@@ -154,11 +195,18 @@ else changes.
 
 ## Upgrading
 
-When a newer kit is out (the page tells you, quietly, if an update source is
-configured), upgrading is a folder swap: **replace the kit's `server` and
-`.claude` folders** with the new ones, and leave everything else. Your
-lessons, highlights, notes and settings live in `courses/` and in
-`~/.kcl-study/`, and an upgrade never touches either.
+**Study Hub tells you when a new version is out**, in one quiet line on the
+page. It never updates itself and it never nags.
+
+Upgrading is a folder swap. Download the new `study-hub.zip` as above, then
+**replace only the `server` and `.claude` folders** in your existing folder with
+the new ones. Leave everything else alone.
+
+🔴 **Do NOT replace the whole folder.** Your lessons, highlights and notes live
+in `courses/`, and your settings live outside the folder entirely, in
+`~/.kcl-study/`. A folder swap that keeps `courses/` keeps all of your work; one
+that replaces it does not. If that makes you nervous, copy `courses/` somewhere
+safe first: it costs a moment and there is nothing else to be careful about.
 
 ## If you would rather not use Claude for it
 

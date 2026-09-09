@@ -76,11 +76,35 @@ def backup(path, move=False):
     return (path, dest)
 
 
+SLUG_MAX = 60
+
+
 def slugify(title):
-    """A filename tail from the title. Lowercase words joined by dashes, which
-    is what every lesson in this project already looks like."""
+    """A filename tail from the title, at whatever length the title gives.
+    Lowercase words joined by dashes, which is what every lesson in this project
+    already looks like."""
     s = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-    return re.sub(r"-{2,}", "-", s)[:60] or "lesson"
+    return re.sub(r"-{2,}", "-", s) or "lesson"
+
+
+def shorten(slug, cap=SLUG_MAX):
+    """`slug` cut to `cap` characters ON A WORD BOUNDARY.
+
+    🔴 This used to be a bare `[:60]` inside slugify, which cut mid-word and said
+    nothing. Two lessons in this repo are still named for it: one ends
+    `...whether-anyone-can-have-it-unt` and another `...what-the-trials-actually-fou`.
+    ⚠️ The cosmetic half is the smaller half. The truncation also produced a
+    filename the caller had not computed, the write went to the untruncated path,
+    and the lesson was never created at all while the gate reported ALL CHECKS
+    PASS over the scaffold. main() now prints what it used whenever the two differ,
+    because a filename the writer did not choose is one they will not recognise.
+    """
+    if len(slug) <= cap:
+        return slug
+    # cap + 1 so a slug that happens to break exactly at the cap keeps its last
+    # whole word instead of losing it.
+    cut = slug[:cap + 1]
+    return cut.rsplit("-", 1)[0] if "-" in cut[1:] else slug[:cap]
 
 
 def house_css(folder):
@@ -185,7 +209,10 @@ def main():
                           "and back it up first if it has been read."
                           % (doc, existing[0].name))
 
-        filename = "%s-%s.html" % (doc, args.slug.strip() or slugify(args.title))
+        full = slugify(args.title)
+        slug = args.slug.strip() or shorten(full)
+        long_title = not args.slug.strip() and slug != full
+        filename = "%s-%s.html" % (doc, slug)
         target = folder / filename
 
         # 🔴 --force REPLACES the lesson holding this id; it does not add a
@@ -224,6 +251,9 @@ def main():
             moved.append(backup(p, move=True))
 
         print("Wrote %s" % target)
+        if long_title:
+            print("  ⚠️ the title is longer than a filename tail, so this lesson is")
+            print("     named %r, cut at a word from %r" % (slug, full))
         for m in moved:
             print("  🔴 replaced %s, kept as %s" % (m[0].name, m[1].name))
         print("  stylesheet from: %s" % whence)

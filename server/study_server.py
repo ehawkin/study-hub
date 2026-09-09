@@ -3431,6 +3431,41 @@ def rating_html(kind, glyph, word, value, label):
             % (label, btns))
 
 
+def lecture_time(order, mats_docs, lstate):
+    """(total, watched, without a duration) in minutes, over a course's LESSONS.
+
+    🔴 SUMMED OVER `order`, WHICH IS THE LESSON LIST, NEVER OVER `docs`.
+    `materials.json` carries `docs` for everything a course has material for,
+    lecture or not: 50 entries in one course whose page lists far fewer lessons.
+    **Summing `docs` would overstate the total by a plausible-looking amount**,
+    which is the worst kind of wrong number, and it would disagree with the
+    "0 of 38" bar rendered three lines away from it. One list feeds both.
+
+    🔴 A lesson with no usable duration is COUNTED AS A GAP, never as zero, and
+    the page says so. A tally with holes in it is worse than no tally, because a
+    reader trusts a number. Junk (a string, a negative, a zero) is a gap too: a
+    course onboarded badly must not throw on the page that lists it.
+
+    Module-level and named, rather than four lines inside the handler, because
+    it is the arithmetic the whole feature rests on and a test has to be able to
+    drive THIS, not a copy of it. (A copy is what the first version of
+    `test_video_tally.py` tested, and four hand-written breakages of the real
+    code sailed through it.)
+    """
+    def minutes(doc):
+        try:
+            v = int((mats_docs.get(doc) or {}).get("minutes"))
+        except (TypeError, ValueError):
+            return None
+        return v if v > 0 else None
+
+    mins = dict((d, minutes(d)) for d in order)
+    total = sum(v for v in mins.values() if v)
+    watched = sum(v for d, v in mins.items()
+                  if v and (lstate.get(d) or {}).get("watched"))
+    return total, watched, sum(1 for d in order if mins[d] is None)
+
+
 def ratings_html(state, label_for):
     """Both scales for one unit, in EH's order: bulbs first, then stars."""
     return "".join(
@@ -3695,7 +3730,8 @@ def write_bookmarks(cfg, doc_id, payload):
         # still saving. It is how "are there stale clients out there" gets an
         # answer off a log rather than an argument about how long a tab lives.
         log(cfg, "bookmarks %s: a write with NO BASE, from a page older than "
-                 "the merge. It adopts what it never saw and deletes nothing."
+                 "the merge. It adopts what it never saw and can NAME, and "
+                 "deletes nothing it can name."
             % doc_id)
     with BOOKMARKS_LOCK:
         disk = read_json_sidecar(bpath, {})
@@ -3746,9 +3782,13 @@ def merge_bookmarks(disk, sent, base):
     helper is used for having ONE copy of the merge rule, not because bookmarks
     need its allowance.
 
-    🔴 A base-less writer adopts everything and deletes nothing, exactly as for
-    marks. That is not a compromise: it is the only correct reading of the only
-    thing an absent base can now mean, which is "this client is too old to say".
+    🔴 A base-less writer adopts everything IT CAN NAME, and deletes nothing it
+    can name, exactly as for marks. That is not a compromise: it is the only
+    correct reading of the only thing an absent base can now mean, which is
+    "this client is too old to say". ⚠️ The qualifier was missing until
+    2026-09-08 and it is load-bearing: `_unseen` skips a disk row
+    `bookmark_key` cannot name, so such a write does drop it. Why that is the
+    right trade is at `_unseen`.
     """
     agreed = _agreed_from(base)
     rows = disk.get("marks")
@@ -3881,7 +3921,8 @@ def write_chatmarks(cfg, doc_id, payload):
     # a writer can know about one and not the other. `base` is
     # `{"marks": [...], "chats": [...]}`; either half may be absent, and an
     # absent half means the same thing an absent base has always meant here --
-    # "too old to say" -- so it adopts everything and deletes nothing.
+    # "too old to say" -- so it adopts everything IT CAN NAME and deletes
+    # nothing it can name. The qualifier is load-bearing and `_unseen` says why.
     base = payload.get("base")
     if not isinstance(base, dict):
         base = {}
@@ -3896,7 +3937,8 @@ def write_chatmarks(cfg, doc_id, payload):
         # there stale clients out there" gets an answer off a log rather than an
         # argument about how long a tab lives.
         log(cfg, "chatmarks %s: a write with NO BASE, from a page older than "
-                 "the merge. It adopts what it never saw and deletes nothing."
+                 "the merge. It adopts what it never saw and can NAME, and "
+                 "deletes nothing it can name."
             % doc_id)
 
     # 🔴 READ, MERGE, WRITE under one lock: read-modify-write on one file inside
@@ -5075,6 +5117,11 @@ def marks_keys(doc):
     `NO_IDENTITY` instead of dropping them. Dropping them there would let a swap
     of two unnameable items read as no change at all, which is the defect that
     guard was rewritten to catch.
+
+    🔴 THE THIRD MEMBER, written down 2026-09-08 so the triangle is stated once
+    instead of being rediscovered: `_unseen` drops them as well, and THERE the
+    drop causes the loss the guard exists to catch. Three functions, two
+    treatments, each correct for its own purpose. The argument is at `_unseen`.
     """
     return [k for k in
             [mark_key(x) for x in (doc.get("items") or []) if isinstance(x, dict)]
@@ -5234,6 +5281,49 @@ def _unseen(theirs, mine, agreed, key_of):
     argument and why each sidecar argues its own key in its own docstring. The
     entry that asked for this says so in terms, and the first shrink guard was
     got wrong by widening it with a hole still in it.
+
+    🔴 A ROW THIS KEY CANNOT NAME IS SKIPPED, AND THAT IS WHY A BASE-LESS WRITE
+    DELETES NOTHING IT CAN **NAME** rather than nothing at all. `held` counts
+    only truthy keys and the loop below does `if not k: continue`, so an
+    unnameable disk row is neither adopted nor rescued. **It is a deliberate
+    trade, argued in each `*_key` docstring**: adopting a row nothing can match
+    would duplicate it on EVERY write, and a collection that grows on every save
+    reaches its cap and then refuses to save at all. Losing a row is bad; a
+    lesson that can no longer be saved is worse.
+
+    🔴🔴 THE ASYMMETRY WITH THE SHRINK GUARD IS DELIBERATE AND MUST NOT BE
+    HARMONISED. The guard BUCKETS the unnameable under `NO_IDENTITY`; this
+    function DROPS them. **One keeps them to CATCH a loss, the other drops them,
+    CAUSING one**, and both are right for their own purpose: the guard must see
+    everything, or a swap of two unnameable rows reads as no change at all; the
+    merge must not adopt what it cannot match, or the file grows without bound.
+    ⚠️ A session tidying the two into agreement would break one of them, and
+    which one depends only on the direction it tidies. Pinned by
+    `test_deletes_nothing_it_can_name.py`, which drives all three on one
+    document.
+
+    🔴 WHICH FUNCTION BUCKETS, said exactly, because the queue entry that asked
+    for this paragraph named the wrong one and a corrected sentence is worth
+    nothing if it points at the wrong code. It is NOT `marks_keys()`, which
+    drops them like this function does, and correctly: its output is the
+    browser's `base`, a list of strings, and a key nothing can match belongs in
+    neither list. The bucketing is `keep_the_losing_copy`'s, and it is made of
+    two halves that must stay together: the `keys=` lambda `write_marks` passes
+    does NOT filter `None`, and the guard then counts `k or NO_IDENTITY`.
+    ⚠️ Hand it `marks_keys` instead and the bucketing stops happening, because a
+    filtered list can never yield the falsy key the `or` is watching for.
+    🟢 **MEASURED rather than asserted, 2026-09-08, by running the whole suite
+    with exactly that substitution: TWO tests object, and only two.**
+    `test_guard_compares`'s replaced-mark test, which predates this paragraph,
+    and `test_deletes_nothing_it_can_name`'s equal-count swap. **The first draft
+    of this sentence said nothing at all would object; it was wrong, and the
+    divergence is better guarded than I gave it credit for.**
+    **Three functions, two treatments.**
+
+    ⚠️ Live exposure re-measured 2026-09-08 on the reader's own machine, because
+    it is exactly the number that goes stale: 179 marks sidecars, 1057 rows, 11
+    bookmark rows, **zero unnameable**. The limit is real and nobody is standing
+    in it.
     """
     held = Counter(k for k in (key_of(x) for x in mine) if k)
     seen, out = Counter(), []
@@ -5292,7 +5382,19 @@ def merge_marks(disk, payload):
     base-less writer left: **a client too old to say.** Refusing to let that
     client delete is then not a compromise between two goods; it is the only
     correct reading of the only thing the value can now mean. Such a write
-    adopts everything on the disk it did not send, and deletes nothing.
+    adopts everything on the disk it did not send AND CAN NAME, and deletes
+    nothing it can name.
+
+    🔴 THOSE LAST FOUR WORDS WERE MISSING UNTIL 2026-09-08, in this docstring
+    and in seven other places, and the short sentence is the argument
+    `base = []` rests on. It was false: `_unseen` skips a disk row `mark_key`
+    cannot name, so a base-less write sending only nameable marks DOES drop an
+    unnameable one, reproduced on the rig at `faff12e` with `kept: 0`.
+    ⚠️ THE MERGE IS RIGHT AND THE SENTENCE WAS WRONG, which is the whole
+    finding: adopting a row nothing can match would duplicate it on every
+    write (`mark_key` argues it in full), and an unnameable row is the shrink
+    guard's to notice rather than this function's. The asymmetry that follows
+    from that is written out once, at `_unseen`.
 
     `[]` is a different SENTENCE with the same effect, made by a browser that
     has this code and has agreed to nothing: "I know of nothing on disk." The
@@ -5360,7 +5462,8 @@ def write_marks(cfg, doc_id, payload):
         # a tab could persist. It is a log line, not a feature: the reader is
         # told by the page itself, which asks `/healthz` when it comes back.
         log(cfg, "marks %s: a write with NO BASE, from a page older than the "
-                 "merge. It adopts what it never saw and deletes nothing."
+                 "merge. It adopts what it never saw and can NAME, and deletes "
+                 "nothing it can name."
             % doc_id)
     with MARKS_LOCK:
         items, notes, kept = merge_marks(read_marks(cfg, doc_id), payload)
@@ -6392,9 +6495,12 @@ def merge_additions(disk, sent, base):
     a creation millisecond, which is the same note. The invariant the tests pin
     is that no two rows on disk ever share a key.
 
-    🔴 A base-less writer adopts everything and deletes nothing, exactly as for
-    marks and bookmarks. It is the only correct reading of the only thing an
-    absent base can mean, which is "this client is too old to say".
+    🔴 A base-less writer adopts everything IT CAN NAME, and deletes nothing it
+    can name, exactly as for marks and bookmarks. It is the only correct reading
+    of the only thing an absent base can mean, which is "this client is too old
+    to say". ⚠️ The qualifier was missing until 2026-09-08 and it is
+    load-bearing: `_unseen` skips a disk row `addition_key` cannot name, so such
+    a write does drop it. Why that is the right trade is at `_unseen`.
     """
     agreed = _agreed_from(base)
     rows = disk.get("items")
@@ -6431,7 +6537,8 @@ def write_additions(cfg, doc_id, payload):
         # still saving. It is how "are there stale clients out there" gets an
         # answer off a log rather than an argument about how long a tab lives.
         log(cfg, "additions %s: a write with NO BASE, from a page older than "
-                 "the merge. It adopts what it never saw and deletes nothing."
+                 "the merge. It adopts what it never saw and can NAME, and "
+                 "deletes nothing it can name."
             % doc_id)
     with ADDITIONS_LOCK:
         items, adopted = merge_additions(read_json_sidecar(path, {}, cfg),
@@ -8529,7 +8636,13 @@ HUB_TREE_CSS = """<style>
   .hmist a:hover { text-decoration: underline; }
 
   /* Where he is in the course, at a glance: one slim meter per kind of done. */
-  .hmeters { display: flex; flex-direction: column; gap: 6px; margin: 0 0 18px; max-width: 520px; }
+  .hmeters { display: flex; flex-direction: column; gap: 6px; margin: 0 0 8px; max-width: 520px; }
+  /* The tally sits with the bars, because it is the same idea in time rather
+     than in count. Muted and one line: it is a fact about the course, not a
+     control. */
+  .htime { margin: 0 0 18px; max-width: 520px; color: var(--muted); font-size: .93em; }
+  .htime .htt { color: var(--ink); }
+  .htgap { display: block; margin-top: 3px; color: var(--broken); }
   .hmeter { display: flex; align-items: center; gap: 10px; }
   .hml { font: 600 11px var(--text, sans-serif); color: var(--muted, inherit);
          text-transform: uppercase; letter-spacing: .06em; width: 60px; }
@@ -8576,9 +8689,27 @@ HUB_TREE_CSS = """<style>
               gap: 1px; margin-left: 2px; }
   .hrateset.side { flex-direction: row; align-items: center; gap: 8px;
                    margin-left: 10px; vertical-align: middle; }
-  .hrates { display: inline-flex; }
-  .hrate { font-size: 15px; line-height: 1; padding: 1px 1px; cursor: pointer;
-           background: none; border: 0; }
+  /* 🔴 A GRID, so glyph five sits above glyph five whatever the glyphs are.
+     EH, 2026-09-08, with a screenshot: "the stars and the light bulbs that are
+     one over the other on the right side don't align, and that looks weird."
+
+     THE CAUSE, read out of these two rules rather than guessed: `.hrates` was
+     an `inline-flex` of five buttons each sized by its own content, and the two
+     scales do not have the same content. The star is a TEXT glyph (U+2605) at
+     15px; the bulb is an EMOJI (U+1F4A1) at 13px, and an emoji is drawn from a
+     different font with a different advance width. Five of one and five of the
+     other are therefore two different widths, and because `.hrateset` is
+     `align-items: flex-end` the difference all lands on the LEFT, which is
+     exactly the drift in his screenshot.
+
+     ⚠️ NOT FIXED BY TUNING LETTER-SPACING ON ONE ROW. That holds for today's
+     two glyphs and breaks the next time either changes, or the first time a
+     reader's emoji font is not Apple's. Equal TRACKS cannot come apart: the
+     track is 20px because the star at 15px is the wider of the two and needs
+     it, and both scales now sit on the same five columns. */
+  .hrates { display: grid; grid-template-columns: repeat(5, 20px); justify-items: stretch; }
+  .hrate { font-size: 15px; line-height: 1; padding: 1px 0; cursor: pointer;
+           background: none; border: 0; width: 100%; text-align: center; }
   .hrate:hover { transform: scale(1.15); }
   .hstar.on { color: var(--accent, #1C6D61); }
 
@@ -8725,6 +8856,46 @@ HUB_TREE_JS = """<script>
       if (n) { n.textContent = count + ' of ' + window.HUBTOTAL; }
       if (bar) { bar.style.width = (window.HUBTOTAL ? Math.round(100 * count / window.HUBTOTAL) : 0) + '%'; }
     });
+    retally();
+  }
+  /* 🔴 "10 h 9 min", and it must say exactly what the Python says: the page is
+     rendered by `hours_and_minutes()` on the server and re-rendered by this
+     when EH presses Watched, so a reader pressing the button would otherwise
+     watch the wording change under them. `test_video_tally.py` drives both over
+     the same table. */
+  function hm(mins) {
+    mins = Math.max(0, Math.round(Number(mins) || 0));
+    if (mins <= 0) { return 'none'; }
+    var h = Math.floor(mins / 60), m = mins % 60;
+    if (!h) { return m + ' min'; }
+    if (!m) { return h + ' h'; }
+    return h + ' h ' + m + ' min';
+  }
+  /* The minutes are re-derived from the rows for the same reason the counts
+     are: the row is the only thing that knows whether it is watched NOW, and a
+     total carried in a variable is a second copy that goes stale the moment
+     something else changes a flag. The TOTAL is left alone, because marking a
+     lesson watched does not change how long the course is. */
+  function retally() {
+    var line = document.querySelector('.htime');
+    if (!line) { return; }
+    var watched = 0;
+    var rows = tree.querySelectorAll('.hrow[data-min]');
+    for (var i = 0; i < rows.length; i++) {
+      var on = rows[i].querySelector('.hflag[data-k="watched"][aria-pressed="true"]');
+      if (on) { watched += Number(rows[i].getAttribute('data-min')) || 0; }
+    }
+    var totalEl = line.querySelector('.htt');
+    var wEl = line.querySelector('.htw');
+    var lEl = line.querySelector('.htl');
+    var total = 0;
+    for (var j = 0; j < rows.length; j++) { total += Number(rows[j].getAttribute('data-min')) || 0; }
+    if (wEl) {
+      wEl.setAttribute('data-watchedmin', String(watched));
+      wEl.textContent = hm(watched) + ' watched';
+    }
+    if (lEl) { lEl.textContent = hm(Math.max(0, total - watched)) + ' left'; }
+    if (totalEl) { totalEl.textContent = hm(total) + ' of lecture'; }
   }
   /* One paint for both scales at all three levels. `set` is the .hrateset for
      one unit, so a week's bulbs cannot repaint a part's. */
@@ -10755,6 +10926,68 @@ def update_status(cfg, fetch=None):
 
 
 # --------------------------------------------------------------------------
+# the other half of the same sentence: is the code on disk the code running
+# --------------------------------------------------------------------------
+#
+# 🔴 THESE ARE TWO DIFFERENT FACTS AND THE READER NEEDS BOTH, which is EH's own
+# reading (2026-09-01): "maybe something similar happens when there is a newer
+# version of the software available". A NEW VERSION is somebody else's work,
+# available whenever he likes. A RESTART OWED is his own machine: the change is
+# already on his disk and is NOT in effect, which is the more urgent of the two
+# and the one that produces "I fixed that, why is it still broken".
+#
+# 🟢 The value this rests on already exists and is already proven. `BUILD_ID` is
+# snapshotted at import from the code that was actually loaded, and
+# `test_build_id.py` pins that it is never re-read: re-reading per request would
+# report the new bytes while the old code ran, which is the exact lie a build id
+# exists to expose. So the comparison is `BUILD_ID` (what is RUNNING) against a
+# fresh `_compute_build_id()` (what is on DISK), and neither side is guessed.
+#
+# ⚠️ `local-layer.html`, `reader/shell.html` and the player parts deploy on
+# SAVE and never move `BUILD_ID`; they are covered by `page_stamp()` and the
+# reader's existing stale-page notice. This one is about the PYTHON only, which
+# is the half a reload cannot fix.
+_RESTART_CACHE = {"at": 0.0, "id": None}
+RESTART_TTL = 5.0
+
+
+def restart_status(now_id=None):
+    """{restart_owed, running_build, disk_build}. Never raises.
+
+    Cached for a few seconds because it hashes every module file, and a reader
+    opening three lessons in a row must not pay for that three times. The window
+    is short on purpose: the answer changes the moment a coder saves a file, and
+    a reader who has just been told to relaunch should not be told again for
+    five seconds after doing it.
+
+    `now_id` is for the tests, and it is the same shape as `update_status`'s
+    `fetch`: the thing that reaches outside is injectable, so the behaviour can
+    be driven without arranging the outside world.
+    """
+    try:
+        if now_id is not None:
+            disk = str(now_id)
+        else:
+            now = time.time()
+            if _RESTART_CACHE["id"] and now - _RESTART_CACHE["at"] < RESTART_TTL:
+                disk = _RESTART_CACHE["id"]
+            else:
+                disk = _compute_build_id()
+                _RESTART_CACHE["at"] = now
+                _RESTART_CACHE["id"] = disk
+    except Exception:
+        # 🔴 Silence is the honest answer to "I cannot tell", the same rule the
+        # update check follows: a notice nobody can act on is noise about our
+        # own plumbing.
+        return {"restart_owed": False, "running_build": BUILD_ID, "disk_build": ""}
+    # ⚠️ `unknown` is what `_compute_build_id` returns when it cannot read the
+    # files, and it is NOT a build that differs: comparing it would tell every
+    # reader on a machine with an unreadable module to relaunch, for ever.
+    owed = bool(disk) and disk != "unknown" and disk != BUILD_ID
+    return {"restart_owed": owed, "running_build": BUILD_ID, "disk_build": disk}
+
+
+# --------------------------------------------------------------------------
 # http
 # --------------------------------------------------------------------------
 
@@ -11372,7 +11605,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": "token required"}, 401)
             self._use_module((query.get("module") or [None])[0])
             if path == "/api/update":
-                return self._json(update_status(self.base_cfg))
+                # 🔴 ONE endpoint, two producers, because the reader has ONE
+                # surface for both and a second round trip to fill the same line
+                # would be a second thing to fail. The two answers are kept in
+                # separate keys and separately silent: an unreachable feed says
+                # `check: unreachable` and nothing else, and a build id that
+                # cannot be read says `restart_owed: false`.
+                answer = dict(update_status(self.base_cfg))
+                answer.update(restart_status())
+                return self._json(answer)
             if path == "/api/captions":
                 # Asks and starts nothing, so the settings page may call it as
                 # often as it likes, including while a run is going.
@@ -12973,7 +13214,15 @@ class Handler(BaseHTTPRequestHandler):
                             % (esc(doc, quote=True),
                                ratings_html(st, lambda w: "Rate this lesson: %s" % w)))
                 rows.append(
-                    '<div class="hrow%s" data-doc="%s">'
+                    # 🔴 `data-min` is on the ROW, not summed on the server and
+                    # handed over as a number, because the watched tally has to
+                    # move when EH presses Watched and the page never reloads.
+                    # `recount()` already re-derives the counts from the DOM for
+                    # exactly that reason; the minutes ride along the same way,
+                    # so the two can never drift apart. Empty means this lesson
+                    # has no duration, which is a state the tally SAYS rather
+                    # than silently treating as zero.
+                    '<div class="hrow%s" data-doc="%s" data-min="%s">'
                     '<a class="hpart" href="%s" data-find="%s">'
                     '<span class="ht">%s</span><span class="hm">%s</span></a>'
                     '<span class="hctl">'
@@ -12985,6 +13234,7 @@ class Handler(BaseHTTPRequestHandler):
                     '</span></div>'
                     % (" seen" if was else "",
                        esc(doc, quote=True),
+                       esc(str(mins), quote=True) if mins else "",
                        esc(m.get("file") or "", quote=True),
                        esc(" ".join([doc, title, str(m.get("title") or ""),
                                      tp[1], wktitle]).lower(), quote=True),
@@ -13005,6 +13255,57 @@ class Handler(BaseHTTPRequestHandler):
         nread = sum(1 for d in order if (lstate.get(d) or {}).get("read"))
         nwatched = sum(1 for d in order if (lstate.get(d) or {}).get("watched"))
 
+        total_min, watched_min, no_minutes = lecture_time(order, mats_docs, lstate)
+
+        def hours_and_minutes(mins):
+            """"10 h 9 min", because "609 minutes" is not a number anybody
+            decides an evening with.
+
+            🔴 The JS in HUB_JS says this same sentence for the live update and
+            the two must agree exactly, so `test_video_tally.py` drives both
+            over the same table of values. Zero is "none", never "0 min": the
+            tally says "none watched yet", which reads as a state rather than
+            as an odd measurement."""
+            mins = int(mins or 0)
+            if mins <= 0:
+                return "none"
+            h, m = divmod(mins, 60)
+            if not h:
+                return "%d min" % m
+            if not m:
+                return "%d h" % h
+            return "%d h %d min" % (h, m)
+
+        def tally():
+            """Total, watched, remaining: EH's three figures, in his order.
+
+            ⚠️ Remaining is DERIVED here and never stored. A stored remaining is
+            a third number that can disagree with the other two, and the day it
+            does, nobody can tell which one is lying."""
+            if not order or not total_min:
+                return ""
+            left = max(0, total_min - watched_min)
+            gap = ""
+            if no_minutes:
+                # 🔴 A tally with holes in it is worse than no tally, because a
+                # reader trusts a number. It cannot happen in either course
+                # today (every lesson has a duration); it will the first time a
+                # course is onboarded badly, and then this line is the whole
+                # difference between "wrong" and "honest".
+                gap = ('<span class="htgap"> %d %s in this course %s no '
+                       'length recorded, so these figures are lower than the '
+                       'real ones.</span>'
+                       % (no_minutes,
+                          "lesson" if no_minutes == 1 else "lessons",
+                          "has" if no_minutes == 1 else "have"))
+            return ('<p class="htime">'
+                    '<span class="htt">%s of lecture</span> &middot; '
+                    '<span class="htw" data-watchedmin="%d">%s watched</span> &middot; '
+                    '<span class="htl">%s left</span>%s</p>'
+                    % (hours_and_minutes(total_min), watched_min,
+                       hours_and_minutes(watched_min),
+                       hours_and_minutes(left), gap))
+
         def meter(label, count):
             pct = int(round(100.0 * count / n)) if n else 0
             return ('<div class="hmeter"><span class="hml">%s</span>'
@@ -13021,13 +13322,14 @@ class Handler(BaseHTTPRequestHandler):
                     '<button type="button" data-hv="list">List</button>'
                     '<button type="button" data-hv="cards">Cards</button></div></div>'
                     '<p class="hprog">Opened %d of %d.%s</p>'
-                    '<div class="hmeters">%s%s</div>'
+                    '<div class="hmeters">%s%s</div>%s'
                     % (len(opened), n,
                        (' Continue where you left off: <a href="%s">%s</a>.'
                         % (esc(metas[resume].get("file") or "", quote=True),
                            esc(show_title(metas[resume], resume))))
                        if resume else "",
-                       meter("Read", nread), meter("Watched", nwatched)))
+                       meter("Read", nread), meter("Watched", nwatched),
+                       tally()))
 
         # 🔴 HOME_PAGE's body slot is a card GRID (the home page lists course
         # cards in it). Handing it loose children chops the hub into 260px
