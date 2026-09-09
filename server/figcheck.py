@@ -44,6 +44,27 @@ whoever is looking. The lessons define their dark palette under both
 
 ⚠️ **It prints a COUNT even when everything is fine.** A tool that is silent on
 success is indistinguishable from a tool that did not run.
+
+## 🟢 CLIPPING IS MEASURED, and only clipping (2026-09-09)
+
+**Every page checks itself**: for each `<text>` in each figure's `<svg>`, is its
+rectangle inside the `<svg>`'s? The answer is in the bar, in words, **even when it
+is zero** (*"no text outside its box in 4 figure(s)"*), and on the console with a
+`[figcheck]` prefix so a driven browser can read it without looking.
+`data-fc-clip` and `data-fc-figures` on `<html>` carry the same numbers for a
+script.
+
+🔴 **Screen rectangles, not viewBox arithmetic.** `getBoundingClientRect` needs no
+coordinate system, no transform chain and no `viewBox` parsing, and it is **not**
+affected by an ancestor's overflow clipping, so a label the browser has already
+cut off still reports where it would have been. That is exactly the defect being
+looked for.
+
+⚠️ **This does not replace looking.** It closes the one defect class that is a
+bounding box; a label sitting ON a box, or an arrow through a caption, are still
+the eye's. **Both times a label has escaped its viewBox in this project the
+variable was WIDTH**, which is what this tool renders faithfully, so the
+measurable half was worth automating first.
 """
 import argparse
 import http.server
@@ -126,12 +147,113 @@ PAGE = """<!doctype html>
     background: #1A2830; color: #fff; padding: 6px 12px;
   }
   .fc-bar a { color: #9ED9CC; margin-right: 10px; }
+  .fc-wait { color: #9AA7AD; }
+  .fc-ok { color: #7BD3A0; }
+  /* Loud on purpose: this is the one state that wants interrupting for. */
+  .fc-bad { color: #1A2830; background: #F2B705; padding: 1px 7px; border-radius: 3px; font-weight: 700; }
   body { padding-top: 34px !important; }
   figure:target { outline: 2px solid #C0392B; outline-offset: 8px; }
 </style>
 <div class="fc-bar">figcheck &middot; %(name)s &middot; theme <b>%(theme)s</b>
   &middot; %(count)d figure(s) &middot;
-  <a href="./index.html">index</a></div>
+  <a href="./index.html">index</a>
+  &middot; <span id="fc-clip" class="fc-wait">measuring...</span></div>
+<script>
+/* 🔴 THE HALF THE EYE KEEPS MISSING, and it is the half that is measurable.
+   The reporter of this check missed a clipped label by eye on a screenshot, and
+   BOTH times a label has escaped its viewBox in this project the variable was
+   WIDTH, which is exactly what this page renders faithfully. Looking is still
+   required for the defects that are not measurable (an arrow through a caption,
+   a label sitting on a box); this closes the one that is. */
+
+/* The decision, kept PURE and separate from the DOM so the suite can run it:
+   which sides of `frame` does `box` escape? Rects in screen space, so no SVG
+   coordinate system, no viewBox arithmetic and no transform chain to get wrong.
+   🟢 getBoundingClientRect is not affected by an ancestor's overflow clipping,
+   so a label the browser has already CLIPPED still reports where it would have
+   been, which is the whole point. */
+function fcOutside(box, frame, tol) {
+  var sides = [];
+  if (box.left   < frame.left   - tol) sides.push('left');
+  if (box.right  > frame.right  + tol) sides.push('right');
+  if (box.top    < frame.top    - tol) sides.push('top');
+  if (box.bottom > frame.bottom + tol) sides.push('bottom');
+  return sides;
+}
+
+/* ⚠️ `text` and not `text, tspan`: a `<text>`'s rect is the union of its tspan
+   lines, so checking both reports the same overflow twice and reads as two
+   defects. */
+function fcScan(tol) {
+  var rows = [], svgs = document.querySelectorAll('figure svg'), i, j;
+  for (i = 0; i < svgs.length; i++) {
+    var frame = svgs[i].getBoundingClientRect();
+    var fig = svgs[i].closest('figure');
+    var texts = svgs[i].querySelectorAll('text');
+    for (j = 0; j < texts.length; j++) {
+      var box = texts[j].getBoundingClientRect();
+      if (!box.width && !box.height) continue;   /* an empty label is not a defect */
+      var sides = fcOutside(box, frame, tol);
+      if (sides.length) {
+        rows.push({figure: (fig && fig.id) || ('svg-' + (i + 1)),
+                   text: (texts[j].textContent || '').trim().slice(0, 60),
+                   sides: sides.join('+'),
+                   over: Math.round(Math.max(
+                     frame.left - box.left, box.right - frame.right,
+                     frame.top - box.top, box.bottom - frame.bottom))});
+      }
+    }
+  }
+  return {figures: svgs.length, bad: rows};
+}
+
+/* 🟢 IT SAYS SOMETHING WHEN IT IS FINE. A check that is silent on success cannot
+   be told apart from a check that never ran, which is this project's own rule
+   and the reason `verify_packages.py` grew a count on success the same week. */
+function fcReport(res) {
+  var el = document.getElementById('fc-clip');
+  var msg;
+  if (!res.figures) msg = 'no figure in this lesson';
+  else if (!res.bad.length)
+    msg = 'no text outside its box in ' + res.figures + ' figure(s)';
+  else msg = res.bad.length + ' label(s) OUTSIDE the box';
+  el.textContent = msg;
+  el.className = res.bad.length ? 'fc-bad' : 'fc-ok';
+  document.documentElement.setAttribute('data-fc-clip', String(res.bad.length));
+  document.documentElement.setAttribute('data-fc-figures', String(res.figures));
+  console.log('[figcheck] ' + msg);
+  for (var k = 0; k < res.bad.length; k++) {
+    var b = res.bad[k];
+    console.log('[figcheck] ' + b.figure + ' ' + b.sides + ' by ' + b.over +
+                'px: ' + JSON.stringify(b.text));
+  }
+  return res;
+}
+
+/* ⚠️ AFTER THE FONTS, not on DOMContentLoaded. A label measured in the fallback
+   face is a label measured at the wrong width, and the whole check is about
+   width.
+
+   🔴🔴 A TIMER AND NOT `requestAnimationFrame`, MEASURED THE HARD WAY. The first
+   version waited for a frame, which never comes in a BACKGROUND tab: Chrome
+   pauses rAF when the page is hidden, so the bar sat on "measuring..." for ever
+   and `data-fc-clip` was never set. **A driven browser opens pages hidden**, so
+   the check looked like it had not run at all, which is the same shape this
+   project already recorded for pdf.js: a hidden tab looks exactly like a hang.
+   ⚠️ Timers are throttled in a hidden tab but they still FIRE, and no frame is
+   needed anyway: `getBoundingClientRect` forces layout itself. */
+(function () {
+  function go() { try { fcReport(fcScan(0.5)); } catch (e) {
+    var el = document.getElementById('fc-clip');
+    if (el) { el.textContent = 'check FAILED: ' + e.message; el.className = 'fc-bad'; }
+    console.log('[figcheck] check failed: ' + e.message);
+  } }
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () {
+    setTimeout(go, 0);
+  });
+  else window.addEventListener('load', function () { setTimeout(go, 0); });
+}());
+</script>
 """
 
 INDEX = """<!doctype html>
@@ -150,8 +272,10 @@ INDEX = """<!doctype html>
 </style>
 <h1>figcheck: %(what)s</h1>
 <p class="sub">%(count)d figure(s) across %(lessons)d lesson(s). Open each one in
-BOTH themes and look at it: a legend clipped at the viewBox edge, a label sitting
-on a box, an arrow through a caption. None of those show up in the markup.</p>
+BOTH themes and look at it: a label sitting on a box, an arrow through a caption.
+Neither shows up in the markup. <b>Text escaping the viewBox is now measured for
+you</b> and the answer is in the bar at the top of every page, in words even when
+it is zero; what is left for the eye is everything that is not a bounding box.</p>
 <table><tr><th>lesson</th><th>figure</th><th>light</th><th>dark</th><th>what it says it is</th></tr>
 %(rows)s
 </table>

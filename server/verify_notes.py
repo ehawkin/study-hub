@@ -19,6 +19,7 @@ import study_server as S
 import split_lessons as SPLIT
 from doi_sidecar import DOI_SIDECAR, load_doi_exceptions
 import doi_links as DOILINK
+import shadow_records as SHADOW
 
 
 def crossref_agent():
@@ -178,7 +179,77 @@ B3 = [
     (r'^(This|The) (section|part|topic|note)\b|^Part \d\b', 'document is the subject'),
     (r'\bwhat follows\b|\bthe rest of this\b|\bcomes next\b', 'forward reference'),
 ]
-SECB = re.compile(r'\b(lecturer|the deck|this deck|the slide|this slide|slides?\s+\d)', re.I)
+# 🔴 This scan used to be headed "spec section B", and §B's Never list has FOUR
+# bullets: naming a person, referring to the delivery format, narrating the
+# source's behaviour, and reproducing interview scaffolding. This pattern
+# implements the SECOND one. The other three are not phrase-matchable, so the
+# header now names the bullet instead of the section: a check whose title claims
+# more than its body does is how the hole below stayed open for weeks.
+#
+# 🔴 And it used to implement about HALF of even that bullet. `lecture`, `video`,
+# `transcript` and `summary slide` were all absent while `lecturer` was present,
+# which is exactly why nobody saw it: the word is in the regex, attached to a
+# different rule, so the rule looked covered. A first draft of a 7PAYCAMD lesson
+# carried "the lecture" 17 times and this scan printed `total: 0`; two lessons
+# had already shipped with one each, waved through on every run since they
+# landed. Found 2026-09-09 by `study-hub-content` while writing W5-T3-P2.
+#
+# 🟢 So the alternatives below are a TRANSCRIPTION of NOTE-SPEC §B's list, not a
+# summary of it, and `test_secb_scan.py` builds its fixture by reading that list
+# out of the spec: a phrase added there turns the suite red until this pattern
+# learns it. There is no count anywhere for anybody to bump.
+#
+# ⚠️ Two candidates were left out, both MEASURED over all 110 lessons on
+# 2026-09-09 rather than argued:
+#   `the video`     1 hit, and it is legitimate - "slowing the video down and
+#                   speaking for the baby" is a clinical technique, not a
+#                   delivery format. The spec's list says "this video", and that
+#                   is what this implements. A scan whose total is never zero
+#                   teaches its reader to stop reading the total.
+#   bare `slide`    🔴 THIS LINE USED TO SAY "7 hits, every one legitimate" AND
+#                   THAT WAS FALSE. `study-hub-content` checked the call instead
+#                   of taking it (`5e27a54`) and found TWO of the seven were
+#                   real violations: "stated on the module's own slide" and
+#                   "five findings sit on the same slide", both inside a
+#                   `note warn` box, which NOTE-SPEC:214 holds to a STRICTER
+#                   version of §B rather than a looser one. They are fixed.
+#                   ⚠️ I had printed the first four matches and generalised the
+#                   word "every" from them. **The sample was the four I could
+#                   see**, which is this project's own named failure.
+#                   🟢 THE DECISION STILL STANDS AND THE REASON IS NOW TRUE:
+#                   5 hits remain, 4 are provenance ("cited on no slide") and
+#                   one is the ordinary English word meaning a slip ("the shared
+#                   word invites exactly that slide"), so a bare `slide` would
+#                   false-alarm for ever. It would also catch "the summary
+#                   slide" free, which is why that phrase is spelled out instead.
+#                   ⚠️ THE PHRASES THAT WOULD CATCH THE TWO ARE PREPOSITIONAL
+#                   ("on a slide", "on the same slide"), their finding, and they
+#                   are FILED rather than added: "cited on a slide" is one of the
+#                   five and whether provenance may say it is a writing call.
+# `presenter` and `interviewer` belong to bullet 1 and are not in scope here;
+# `interviewer` measured 2 hits, both legitimate (blinded research interviewers).
+#
+# 🔴 EVERY alternative ends at a word boundary, and that is not tidiness. The
+# first draft of this widening did not, and `the transcripts?` then matched
+# "stimulates THE TRANSCRIPTion rate of a target gene" twice in a shipped
+# neuroinflammation lesson. ⚠️ The measurement that cleared the widening had used
+# `\bthe transcripts?\b`, so it was a witness for a pattern this file does not
+# contain; the corpus test lifts the pattern from HERE for exactly that reason,
+# and it went red inside a minute.
+# ⚠️ `slides?\s+\d` is the one alternative with NO trailing boundary, deliberately:
+# it ends in a digit, and `\b` after `\d` would refuse "slide 17" while accepting
+# "slide 1", which is the worst of both.
+SECB = re.compile(
+    r'\b('
+    r'lecturers?\b'                # §B bullet 1, the one word of it a scan can do
+    r'|(the|this) lectures?\b'     # "the lecture"
+    r'|this videos?\b'             # "this video"
+    r'|(the|this) decks?\b'        # "the deck"
+    r'|(the|this) slides?\b'       # "the slides", and "no audio on this slide"
+    r'|the summary slide\b'        # "the summary slide"
+    r'|the transcripts?\b'         # "the transcript", never "transcription"
+    r'|slides?\s+\d'               # "slide 17"
+    r')', re.I)
 
 fails = []
 
@@ -286,7 +357,7 @@ for p in NOTES:
                     break
 print("  total: %d" % n3)
 
-print("\n=== spec section B scan (source must not surface) ===")
+print("\n=== spec section B, delivery format (source must not surface) ===")
 nb = 0
 for p in NOTES:
     for i, b in enumerate(S.find_blocks(p.read_text())):
@@ -571,6 +642,8 @@ if "--dois" in sys.argv:
         print("  🔴 %d doi.org links could not be read as a link+label pair, so "
               "they were NOT checked" % unreadable)
         fails.append("doi %d unreadable links" % unreadable)
+    shadows = []
+    titles = {}
     for doi, labels in seen.items():
         if doi in SKIP:
             continue
@@ -618,6 +691,18 @@ if "--dois" in sys.argv:
         ok_a = (not fam) or any(f.lower() in auth.lower() or auth.lower() in f.lower()
                                 for f in fam)
         ok_y = (not laby) or any(abs(int(laby.group(0)) - y) <= 1 for y in yrs)
+        # 🔴 A record that STANDS IN for the paper: a supplement, a correction,
+        # an erratum. It resolves, its year matches, its journal matches and its
+        # title contains the real title, so every check above passes and every
+        # word-overlap instrument scores it about 1.0. Structural or nothing.
+        # Reported rather than failed: a supplement is a real document and
+        # somebody may mean to cite one. What it must never do is pass silently.
+        titles[doi] = SHADOW.first_title(rec)
+        shadow = SHADOW.shadow_reason(doi, rec)
+        if shadow:
+            # Judged AFTER the loop: whether the article is cited too can only
+            # be answered once every record on this run has been fetched.
+            shadows.append((doi, shadow, lab, rec))
         upd = [u.get("type") for u in rec.get("updated-by", [])]
         why = ("author %s vs %s" % (lab, fam[:2]) if not ok_a
                else "year %s vs %s" % (lab, sorted(yrs)) if not ok_y
@@ -629,6 +714,40 @@ if "--dois" in sys.argv:
         time.sleep(0.04)
     print("  every DOI matches its record" if not any(f.startswith("doi ") for f in fails)
           else "  see mismatches above")
+
+    # 🟢 A POSITIVE RESULT, printed even at zero. A check that is silent on
+    # success is indistinguishable from a check that never ran, and this one
+    # would be silent for months at a time.
+    # 🔴 A deliberate correction link is NOT a finding, and telling the two
+    # apart is the whole usefulness of this section. A writer who links a
+    # correction on purpose cites the article beside it, which is what
+    # NOTE-SPEC's `corrnote` convention says; a writer holding the wrong record
+    # cites only the wrong record, because they believe it is the article.
+    # Measured on the first real run over 7PAYCAMD: without this the Asperger
+    # correction in W4-T2-P1 reads as a defect and is not one.
+    alone = [(d, w, l, SHADOW.companion_cited(d, r, titles)) for d, w, l, r in shadows]
+    flagged = [x for x in alone if not x[3]]
+    paired = [x for x in alone if x[3]]
+
+    print("\n=== records that stand in for a paper (supplements, corrections) ===")
+    if not flagged:
+        # 🟢 A POSITIVE RESULT, printed even at zero. A check that is silent on
+        # success is indistinguishable from a check that never ran, and this one
+        # will be silent for months at a time.
+        print("  none: %d of %d records are the paper they are cited as."
+              % (len(seen) - len(flagged), len(seen)))
+    for doi, why, lab, _ in flagged:
+        print("  ⚠️ SHADOW RECORD  %s  (%s)" % (doi, lab[:48]))
+        print("      %s" % why)
+        instead = SHADOW.article_for(doi)
+        if instead:
+            print("      the article itself is probably %s, which this has NOT "
+                  "resolved. Check it before swapping." % instead)
+        print("      nothing else in this course cites the paper it stands for, "
+              "which is what a wrong record looks like.")
+    for doi, why, lab, mate in paired:
+        print("  🟢 deliberate  %s is a stand-in, and %s (the paper itself) is "
+              "cited too" % (doi, mate))
 
 print("\n" + ("FAILURES: " + "; ".join(fails) if fails else "ALL CHECKS PASS"))
 sys.exit(1 if fails else 0)

@@ -339,8 +339,8 @@
      against. Same unfilled-token rule as SERVED_FROM below, and here the token
      surviving would be strictly worse than empty: it matches no build id the
      server can ever return, so every tab would ask for a reload for ever. */
-  var SERVED_BUILD = '@@BUILD_ID@@';
-  if (SERVED_BUILD.indexOf('@@') === 0) SERVED_BUILD = '';
+  var SERVED_STAMP = '@@BUILD_ID@@';
+  if (SERVED_STAMP.indexOf('@@') === 0) SERVED_STAMP = '';
   /* What to call the machine this server runs on, for the two sentences that
      have to name it. Empty is the normal answer for a page nobody served, and
      for a reader on loopback it is never consulted at all.
@@ -1540,7 +1540,7 @@
     servedFrom: SERVED_FROM,
     /* What this page was composed by. Empty means nothing can be said about
        staleness, which is different from "current" and the layer treats it so. */
-    servedBuild: SERVED_BUILD,
+    servedStamp: SERVED_STAMP,
     courseName: COURSE_NAME,
     /* 🔴 The SHORT name, exported under its own name rather than left
        for the header to reach into `VAULT` for. Same value and the same

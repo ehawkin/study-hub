@@ -145,6 +145,53 @@ window.__mirror = { phase: 'starting', doc: '%DOC%', files: 0, bytes: 0, errors:
       S.errors.push('referenced but never fetched: ' + S.missing.join(', '));
     }
 
+    /* 🔴 A package with no media in it is not a package, and the report above
+       cannot say so: it lists what was REFERENCED and missed, and a format
+       that writes none of its asset names in its source references nothing.
+       So the honest report and the empty result are consistent, which is the
+       worst combination this tool can produce.
+
+       MEASURED 2026-09-09 against the live Articulate Rise week package, by
+       running this exact algorithm against it: 6 files, 370KB, zero images,
+       zero audio, and a `missing` list naming 4 code bundles. That reads like
+       a near-complete mirror and is a mirror of nothing.
+
+       Why widening the probe families cannot reach it, also measured: 99.4% of
+       that index.html is ONE inline script, the course data is LZW-compressed
+       (`lib/lzwcompress.js` is shipped and loaded), and the asset the runtime
+       actually fetched appears NOWHERE in index.html or in the player bundle.
+       Rise names assets with random ids, so there is no numbered family to walk
+       and no string to follow. Reading a Rise package is a different job, and
+       `await window.__fetchCourse()` on the course page already does it.
+
+       The floor is ZERO rather than a count off today's corpus: 43 mirrored
+       packages carry 20 media files at the fewest, but pinning 20 would fail a
+       legitimately short package, and "a narrated slide package with no image,
+       no audio and no video" is wrong at any size. */
+    const mediaRe = /\.(png|jpe?g|gif|svg|webp|mp3|m4a|wav|mp4|webm)$/i;
+    S.media = [...seen.keys()].filter((p) => mediaRe.test(p)).length;
+    if (!S.media) {
+      const idx = new TextDecoder('utf-8', { fatal: false })
+        .decode(seen.get('index.html') || new Uint8Array());
+      const rise = idx.includes('lzwcompress') || /rise\/[0-9a-f]{6,}\.js/.test(idx);
+      S.format = rise ? 'articulate-rise' : 'unknown';
+      S.phase = 'failed';
+      S.errors.push(rise
+        ? 'this is an Articulate Rise package, and it cannot be mirrored: its '
+          + 'course data is compressed inside index.html and its assets carry '
+          + 'random names that appear nowhere in the source, so there is nothing '
+          + 'to follow and no numbered family to probe. Use the course-data '
+          + 'route instead: run await window.__fetchCourse() on the course page, '
+          + 'which hands over slides and transcript already structured. '
+          + seen.size + ' files of player shell were fetched and are being '
+          + 'thrown away rather than saved as a package.'
+        : 'no image, no audio and no video was found, so whatever this is, it is '
+          + 'not a narrated slide package. Nothing is being saved: a shell with '
+          + 'no content is worse than no file at all, because it looks like a '
+          + 'package. ' + seen.size + ' files were fetched.');
+      return;
+    }
+
     /* Tar it: ustar, one entry per file, paths as fetched. */
     S.phase = 'packing';
     const enc = new TextEncoder();

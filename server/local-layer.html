@@ -1253,6 +1253,37 @@ What it adds when the server is there:
   :root { --sv-pzoom: 1; }
   .sv-panel > *, .hl-panel > * { zoom: var(--sv-pzoom); }
 
+  /* ---- the LESSON's text size, EH 2026-09-03 ------------------------------
+
+     *"it would be nice to have something that lets you change the font size,
+     especially in the main left pane with the lessons."*
+
+     `zoom` again, and for the reason above: the lesson stylesheet sets type in
+     dozens of places in px, and a `font-size` cascade over it would scale the
+     paragraphs and leave the headings, rules and figure captions where they
+     were. `zoom` takes the whole subtree, type and the spacing around it, in
+     one declaration.
+
+     🔴 THE CAP IS THE HALF THAT IS EASY TO MISS. `.wrap` is `max-width: 960px`
+     in `reader/lesson-base.css`, and `zoom` scales that cap along with
+     everything else: at Largest a 960px column becomes 1248px, so "make the
+     text bigger" would also make the line 30% longer, which is worse
+     typography than the small text it was fixing. Dividing the cap by the same
+     number holds the RENDERED column at 960px and lets only the text grow.
+
+     ⚠️ It cannot overflow a narrow window, which is the objection to read the
+     `calc` with: `zoom` lays the subtree out in its own scaled coordinate
+     space, so a cap of `960/1.3` = 738 scaled units IS 960 rendered pixels and
+     binds only where 960 pixels exist. Below that the column is bounded by the
+     viewport exactly as it is today.
+
+     🔴 The 960 is duplicated from `lesson-base.css` and there is no way to
+     write it once across a stylesheet and a layer. `test_lesson_size.py` reads
+     both files and asserts the two numbers are equal, which is the join this
+     project keeps asking for. */
+  :root { --sv-lzoom: 1; }
+  .wrap { zoom: var(--sv-lzoom); max-width: calc(960px / var(--sv-lzoom)); }
+
   /* ---- chat and notes as one sidebar, with a toggle at the top ----
 
      Asked 2026-08-13: "It would also be good in the right-hand pane menu to
@@ -1827,19 +1858,38 @@ What it adds when the server is there:
 
      🟢 MEASURED RATHER THAN ASSUMED, 2026-09-03, in a real lesson at one-pixel
      steps: the corpus's longest cue -- 89 characters, of 4,876 across 395 `.vtt`
-     files, recounted from the files themselves -- needs three lines only below
-     370px of pane. EH's pane is 605px and the shipped default is 440px. **So on
-     every width anybody actually uses, this number holds every cue that
-     exists**, and the reflow the design accepts is a narrow-pane case.
+     files -- needed three lines only below 370px of pane. EH's pane is 605px and
+     the shipped default is 440px.
 
      🟢 RE-DERIVED 2026-09-04 WHEN THE RECORDINGS ARRIVED, because a claim about
-     "the corpus" goes stale the moment the corpus grows. **The first recording
-     adds 157 cues, and its longest is 85 characters** -- inside the 89 the number
-     above was measured on, so 44px still holds every cue in the corpus and the
-     370px figure does not move. **Recount this if a caption run ever produces a
-     cue longer than 89 characters**; `cues()` caps a cue at
-     `CUE_CHARS * CUE_LINES` = 84 characters plus the last word, which is why the
-     ceiling is stable rather than lucky.
+     "the corpus" goes stale the moment the corpus grows. The first recording
+     added 157 cues and its longest was 85 characters.
+
+     🔴🔴 RE-MEASURED 2026-09-09 OVER THE WHOLE CORPUS, AND THE OLD METHOD WAS
+     MEASURING THE WRONG CUE. Four recovered lectures pushed the longest cue to
+     93 characters, so the tripwire fired and every cue was measured rather than
+     just the longest one: **463 files, 10,504 cues, each laid out in a real
+     `.sv-pkgcap` in a real lesson page.**
+
+       605px (EH's pane)   0 cues need three lines
+       440px (the default) 0
+       400px               0
+       380px               7
+       376px              14
+       370px              41
+
+     🟢 **THE DESIGN NUMBER HOLDS, and now on the whole corpus rather than on one
+     cue**: at every width anybody actually uses, 44px holds every cue there is.
+
+     🔴 **BUT CHARACTER COUNT DOES NOT PREDICT WRAPPING, which is why the old
+     figure was optimistic.** The cues that need three lines first are **82 to 86
+     characters**, not the 93-character longest: short tokens give the browser
+     more places to break, and the 93 (`... @) to thea 6) ignoring them @) ...`)
+     fits two lines from 357px while an 89-character one needs 376px. **So "41 at
+     370px" is not a regression from "0 at 370px"; the old figure only ever
+     measured the single longest cue.** ⚠️ The character tripwire in
+     `test_captions_render` is kept because it made this measurement happen, but
+     it is a "the corpus changed, go and look" trigger and NOT a bound.
 
      ⚠️ THE FILE'S OWN LINE BREAKS ARE NOT WHAT WRAPS ON SCREEN. `cleanCue`
      collapses whitespace, so a cue written over three lines in the `.vtt` is one
@@ -2624,7 +2674,7 @@ What it adds when the server is there:
     white-space: nowrap;
   }
   .sv-headnav { margin-left: auto; display: flex; align-items: center; gap: 7px; }
-  .sv-headnav button, .sv-menu button {
+  .sv-headnav button, .sv-menu button, .sv-textmenu button {
     font: 600 13px var(--body); color: var(--ink); background: var(--surface);
     border: 1px solid var(--rule); border-radius: 6px; cursor: pointer;
   }
@@ -2656,6 +2706,63 @@ What it adds when the server is there:
   }
   .sv-bars::before { top: -6px; }
   .sv-bars::after  { top: 6px; }
+
+  /* ---- the lesson text size, and where EH put it -------------------------
+
+     *"it can live as an icon. You can click, and then it opens something up in
+     the top bar, maybe to the right of where the stars are, locked to the very
+     right of that bar."*
+
+     🔴 HIS TWO PHRASES PULL SLIGHTLY APART and this is the reading. The stars
+     live inside `.sv-headline2`, which drops to a second line as one unit; the
+     very right of the bar is past the tools and the burger. Taking "locked to
+     the very right of that bar" as the literal one puts the icon last in the
+     DOM with no `order`, so it is last on the row at every width, and it is
+     also to the right of the stars, which satisfies both halves of the
+     sentence. **His word would settle it; this is the assumption until then.**
+
+     🟢 IT IS NOT DUPLICATED INTO `.sv-menu`, unlike the four tools, and that is
+     a decision rather than an omission: the tools are duplicated because they
+     are HIDDEN below 730px and while a panel is open. This is never hidden by
+     either, so a copy would be a second implementation that can only drift.
+
+     Two A's rather than a glyph, for the reason `.sv-bars` draws its own lines:
+     a letter renders in any fallback font and an icon character may not. */
+  .sv-textbtn {
+    margin-left: 8px; display: inline-flex; align-items: center;
+    justify-content: center; gap: 1px;
+    color: var(--ink); background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 6px;
+    min-height: 40px; min-width: 46px; padding: 0 10px; cursor: pointer;
+    font-family: var(--body);
+  }
+  .sv-textbtn:hover { border-color: var(--hl-d-line); color: var(--hl-d-line); }
+  .sv-textbtn:focus-visible { outline: 2px solid var(--hl-d-line); outline-offset: 2px; }
+  .sv-textbtn[aria-expanded="true"] { border-color: var(--hl-d-line); color: var(--hl-d-line); }
+  .sv-tsz i { font-style: normal; font-size: 11px; font-weight: 700; }
+  .sv-tsz b { font-size: 16px; font-weight: 700; }
+  /* 🔴 The tools and the burger both carry `margin-left: auto`, and two auto
+     margins SHARE the free space rather than both pushing right. So this one
+     takes the auto only in the state where those two are gone: a panel open,
+     which is exactly when it would otherwise sit against the breadcrumb. */
+  html.sv-panel-open .sv-textbtn { margin-left: auto; }
+
+  .sv-textmenu {
+    position: fixed; top: var(--sv-head-h); right: 8px; z-index: 62;
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 8px; box-shadow: 0 14px 34px rgba(0,0,0,.20);
+    display: flex; flex-direction: column; padding: 8px; gap: 6px;
+    min-width: 196px;
+  }
+  .sv-textmenu[hidden] { display: none; }
+  .sv-textmenu button { min-height: 44px; padding: 0 14px; text-align: left; }
+  .sv-textmenu button:focus-visible { outline: 2px solid var(--hl-d-line); outline-offset: -2px; }
+  .sv-textmenu button[aria-pressed="true"] {
+    border-color: var(--hl-d-line); color: var(--hl-d-line); background: var(--hl-d);
+  }
+  /* Same offset the tools menu takes, so an open pane does not sit on top of
+     it; the extra 8px keeps the gap this one has and that one does not. */
+  html.sv-panel-open .sv-textmenu { right: calc(var(--sv-reserved) + 8px); }
 
   .sv-menu {
     position: fixed; top: var(--sv-head-h); left: 0; right: 0; z-index: 61;
@@ -2740,14 +2847,44 @@ What it adds when the server is there:
      left in the row to spend on it. That is the honest floor of this design,
      not a width anybody reads at. */
   /* 🔴 THIS RUNG USED TO HIDE THE KEY AND NOW MOVES THE WHOLE SECOND LINE.
-     1048 is the measured width at which the single row stopped fitting, so it
-     is the right width to stop trying to be a single row. Nothing is dropped
+     It is the measured width at which the single row stops fitting, so it is
+     the right width to stop trying to be a single row. Nothing is dropped
      here: `order` puts the crumbs and the tools on row 1 and the line below
      them, and `flex-basis: 100%` is what makes it a row rather than a wrap
-     that lands wherever it fits. */
-  @container svhead (max-width: 1048px) {
+     that lands wherever it fits.
+
+     🔴 1115, NOT THE 1048 THAT STOOD HERE, and the 67px is the text-size icon
+     added 2026-09-09 (46px of button, the row's 13px gap, its own 8px margin).
+     ⚠️ THE NUMBER IS A CONTENT-BOX WIDTH: `container-type: inline-size` queries
+     the content box, and this element carries 14px of padding each side, so the
+     rung fires at a 1143px header rather than an 1115px one. Measuring the
+     border box against this number is how somebody concludes the query is
+     broken.
+
+     🔴 WHAT MOVING IT ACTUALLY BUYS, measured in Chrome on a real lesson with
+     the icon hidden as the control, because the honest answer is not "it fixes
+     it": wrapping begins at a 1203px header WITH the icon and at 1136px
+     WITHOUT it, and this rung fired at 1076px. So a band where the row wraps
+     with no ordering rule to catch it ALREADY EXISTED and was 59px wide; the
+     icon took it to 126px, and in the new part of it the icon dropped to a
+     second line ON ITS OWN, under the breadcrumb. 1115 puts the band back to
+     exactly the 59px that was here before this change.
+
+     ⚠️ SO THE BAND IS NOT GONE AND THIS NUMBER CANNOT CLOSE IT. The row's width
+     depends on the BREADCRUMB, which is a course name and varies per page (it
+     was 249px on the page this was measured on), so no single threshold is
+     right for every lesson. Closing it needs the second line to take a whole
+     line whenever it wraps at all, which is a different mechanism from a
+     measured rung. Left as it was found, deliberately, rather than widened in
+     silence. */
+  @container svhead (max-width: 1115px) {
     .sv-headcrumbs { order: 1; }
-    .sv-headnav, .sv-burger { order: 2; }
+    /* 🔴 THE TEXT BUTTON ORDERS WITH THE TOOLS, and leaving it out is the
+       silent bug: with no `order` it defaults to 0, which is BEFORE `order: 1`,
+       so the icon would jump from the far right of the row to the far LEFT of
+       it the moment the header crossed 1048px. Same value as the tools, later
+       in the DOM than them, so it stays last on row 1 at every width. */
+    .sv-headnav, .sv-burger, .sv-textbtn { order: 2; }
     .sv-headline2 { order: 3; flex-basis: 100%; margin-left: 0; }
     .sv-headrate { margin-left: 0; }
   }
@@ -2804,7 +2941,7 @@ What it adds when the server is there:
        viewport carries and the container does not. */
     @media (max-width: 1076px) {
       .sv-headcrumbs { order: 1; }
-      .sv-headnav, .sv-burger { order: 2; }
+      .sv-headnav, .sv-burger, .sv-textbtn { order: 2; }
       .sv-headline2 { order: 3; flex-basis: 100%; margin-left: 0; }
       .sv-headrate { margin-left: 0; }
     }
@@ -5501,12 +5638,16 @@ What it adds when the server is there:
            lecture itself is sandboxed and an overlay was covering the slide. */
         buildPackageBar(matKeep.querySelector('iframe.sv-matpkg'));
       }
-      matShownSrc = null;    /* the swap area is a caption now, not a document */
-      matSwap.innerHTML =
-        '<p class="sv-matmsg quiet">Playing from your own copy on this server, ' +
-        'saved from the course site: slides, narration and all, so it needs no ' +
-        'login. The arrow beside "' + cur.label + '" above opens the original ' +
-        'on KEATS instead.</p>';
+      matShownSrc = null;    /* the swap area holds nothing now, not a document */
+      /* 🔴 EMPTIED, NOT DELETED, and the assignment has to stay. EH, 2026-09-05:
+         "That little part that says 'playing from your own copy on this server,
+         saved from the course site', we can get rid of across the board. We
+         don't need that anywhere." The provenance line is gone; the CLEAR is
+         load-bearing, because this branch is reached by switching tabs and the
+         swap area is still showing whatever document the last view put there.
+         Dropping the line and the assignment together would leave the slides
+         sitting under the running lecture. */
+      matSwap.innerHTML = '';
       return;
     }
 
@@ -6431,11 +6572,25 @@ What it adds when the server is there:
        Pure, so the decision can be driven in a test without a DOM. */
     if (!d || d.ok === false) return null;
     if (d.restart_owed === true && d.disk_build) {
+      /* 🔴 REWRITTEN 2026-09-09 from EH's own confusion: "Even I misunderstood
+         it just now." He read this, pressed Command-Shift-R, and the line
+         stayed, because the condition is that the SERVER is running old code
+         and no amount of reloading a page changes which process is serving it.
+
+         Three things were wrong and all three are fixed here rather than in
+         the button alone. "Relaunch IT" left the object unnamed, and a reader
+         looking at a browser page reads "it" as the page: THE ONE REFERENT
+         THAT CANNOT WORK. Nothing said a refresh would not help, which is the
+         first thing anybody tries. And "Open Settings" named a navigation step
+         instead of an outcome, so nothing on screen said this was the thing
+         that fixes what you are reading. */
       return { kind: 'restart', token: String(d.disk_build),
-               text: 'The server has been updated on this machine, and this page '
+               text: 'The server on this machine has been updated, and this page '
                    + 'is still being served by the version that was running '
-                   + 'before. Relaunch it to load the change.',
-               act: 'Open Settings' };
+                   + 'before. Refreshing will not clear this: the server itself '
+                   + 'has to be relaunched. It goes away for a moment and this '
+                   + 'page comes back on its own.',
+               act: 'Relaunch the server' };
     }
     /* ⚠️ Second, never both at once, and never instead of the first. A restart
        owed is about work already on the disk; an update is about work that is
@@ -6476,12 +6631,38 @@ What it adds when the server is there:
       b.type = 'button';
       b.className = 'sv-notice-act';
       b.textContent = n.act;
+      /* 🔴 THE BUTTON DOES THE THING NOW, and the old comment here read "the
+         one Relaunch button, reached rather than copied". That instinct was
+         right and it is KEPT: what is shared is the ROUTINE (`relaunchServer`),
+         not a second copy of the restart. What changed is that reaching a
+         control two clicks away, in a panel, under a different word, is not an
+         answer to a reader who has just been told something is wrong here.
+
+         ⚠️ It stays a deliberate click and is never automatic: a restart drops
+         whatever is in flight. */
       b.addEventListener('click', function () {
-        /* The one Relaunch button, reached rather than copied. */
-        var gear = document.querySelector('.sv-gear');
-        if (gear) gear.click();
-        var btn = document.getElementById('svRestart');
-        if (btn && btn.focus) btn.focus();
+        if (b.disabled) return;
+        b.disabled = true;
+        relaunchServer(function (state, why) {
+          if (state === 'going') {
+            txt.textContent = 'Relaunching the server. This page will come back '
+                            + 'on its own.';
+            return;
+          }
+          if (state === 'up') {
+            /* 🔴 RELOADING IS THE POINT, not a courtesy. The banner exists to
+               say "you are reading a page built by old code"; a restart that
+               leaves the reader on that same page has reported success and
+               changed nothing they can see, which is the defect repeating
+               itself one step further along. */
+            try { window.location.reload(); } catch (e) {}
+            return;
+          }
+          txt.textContent = (state === 'refused' && why ? why
+                             : 'The server did not answer again.')
+                          + ' It may need starting by hand on ' + hostWord() + '.';
+          b.disabled = false;
+        });
       });
       box.appendChild(b);
     }
@@ -7796,13 +7977,57 @@ What it adds when the server is there:
   var cardsBusy = {};
   var cardBox = null;
 
+  /* 🔴 THE KEYS THIS PAGE LAST AGREED THE FILE HELD, the fifth and last sidecar
+     to carry one. `null` means "has agreed to nothing", which the server reads
+     as a client too old to say and answers by adopting everything it can name
+     and deleting nothing it can name. That is the correct answer while this
+     page has never managed to read the file. */
+  var CARDS_BASE = null;
+
+  /* 🔴 IT MUST AGREE WITH `card_key` IN THE SERVER, CHARACTER FOR CHARACTER,
+     and this is the ONE key in this file where that is free: it carries no
+     text at all. Every other one truncates a string, and a JavaScript `slice`
+     counts UTF-16 code units where a Python slice counts code points, so one
+     emoji before the cut makes the two sides disagree. Here the key IS the
+     identity and is copied out whole.
+
+     🔴 ONLY THE STAMPED CARDS. A card made on the page is keyed by its mark id,
+     which is a local ordinal and not an identity at all: two Macs both call a
+     card `3`, and `merge_marks` renumbers every mark it adopts, so a mark card
+     on disk under a key this page does not hold names a mark that has already
+     been renumbered to something else. The server's `card_key` argues it in
+     full, including what it costs (a lookup, never a row). */
+  function cardKey(k) { return /^c[a-z0-9]{1,24}$/.test(String(k)) ? String(k) : null; }
+
+  function cardKeys(obj) {
+    return Object.keys(obj || {}).filter(function (k) { return cardKey(k) !== null; });
+  }
+
   function saveCards() {
     if (!maySaveSidecar('cards', 'cards')) { return sidecarRefused('cards'); }
+    /* 🔴 READ BEFORE THE POST, never after: a lookup may land while this one is
+       in flight, and a base computed in the callback would claim agreement to a
+       card the server has not been told about. */
+    var mine = cardKeys(cards);
     return api('/api/cards', { method: 'POST',
                                headers: { 'Content-Type': 'application/json' },
-                               body: JSON.stringify({ doc: S.docId, cards: cards }) })
+                               body: JSON.stringify({ doc: S.docId, cards: cards,
+                                                      base: CARDS_BASE }) })
       .catch(function () {})
-      .then(noticeSave('cards', 'your cards'));
+      .then(noticeSave('cards', 'your cards'))
+      .then(function (r) {
+        /* 🔴 MOVED ONLY ON A LANDED SAVE, and to what was SENT rather than to
+           what came back. A base advanced after a refused save would claim
+           agreement to a file this page never wrote, and the next save would
+           delete whatever the other Mac had added in between.
+
+           🔴 AND TO WHAT WAS SENT rather than to the file's own keys, for the
+           reason the kept notes give: this page does not adopt the merged
+           result into `cards`, so a base naming a row it never drew would
+           license deleting it on the next save. */
+        if (saveLanded(r)) { CARDS_BASE = mine; }
+        return r;
+      });
   }
 
   function cardItems() {
@@ -7990,6 +8215,10 @@ What it adds when the server is there:
 
      `null` means "has agreed to nothing", which the server reads as a client
      too old to say and answers by adopting everything and deleting nothing. */
+  /* 🔴 `null` until the conversations have actually been loaded, and that is
+     not the same as `[]`. Null says "this page has agreed to nothing", so a
+     save before the load adopts everything on disk instead of deleting it. */
+  var CHATS_BASE = null;
   var CM_BASE = null;
   var CB_BASE = null;
 
@@ -8156,9 +8385,26 @@ What it adds when the server is there:
     });
   }
 
+  /* 🔴 `:not(.pending)` IN ALL FOUR PLACES BELOW, and the reason is one bug.
+     A chat mark is stored as an INDEX into this walk, and the "Thinking." box
+     is a `.sv-turn` with a `.txt` child, so it was in the walk. Mark it while an
+     answer is in flight and the index names the pending box; when the answer
+     lands, `renderThread` replaces that box with a real turn AT THE SAME INDEX,
+     and the mark paints on the first characters of an answer the reader never
+     asked to highlight and never saw.
+
+     🟢 REPRODUCED IN A BROWSER 2026-09-09, which nobody had done: the entry
+     rested on four code readings that agreed, and the proof list said to close
+     it if the bar did not actually appear. It does. Selecting the nine
+     characters of "Thinking." raises the mini bar with its Highlight button,
+     and the pending box sits in the walk at index 1 of 2.
+
+     ⚠️ The pending box is always appended LAST, so it never shifts the index of
+     a real turn. That is why this is a wrong highlight and not data loss, and
+     it is also why excluding it cannot renumber anything that already exists. */
   function paintChatMarks() {
     if (!openChat || !pThread) return;
-    Array.prototype.forEach.call(pThread.querySelectorAll('.sv-turn .txt'),
+    Array.prototype.forEach.call(pThread.querySelectorAll(CHAT_TXT),
       function (txt, i) { paintChatTurn(txt, i, openChat.id); });
   }
 
@@ -8167,16 +8413,23 @@ What it adds when the server is there:
     if (!sel || !sel.rangeCount || sel.isCollapsed || !openChat) return false;
     var r = sel.getRangeAt(0);
     var start = r.startContainer.nodeType === 1 ? r.startContainer : r.startContainer.parentNode;
-    var txt = start && start.closest ? start.closest('.sv-turn .txt') : null;
+    var txt = start && start.closest ? start.closest(CHAT_TXT) : null;
     if (!txt) return false;
-    var boxes = Array.prototype.slice.call(pThread.querySelectorAll('.sv-turn .txt'));
+    var boxes = Array.prototype.slice.call(pThread.querySelectorAll(CHAT_TXT));
     var i = boxes.indexOf(txt);
     if (i < 0) return false;
     var s = offsetInTxt(txt, r.startContainer, r.startOffset);
     var e = offsetInTxt(txt, r.endContainer, r.endOffset);
     if (s < 0 || e < 0 || e <= s) return false;
+    /* 🔴 cutText, not .slice(0, 400). A raw slice cuts by UTF-16 code UNIT, so
+       a cut landing inside an emoji stores a LONE SURROGATE: half a character,
+       at the end of the text, which then travels through JSON, display and
+       search. It never caused the key divergence the three keys were fixed
+       for (a string of 400 units has at most 400 code points, so both sides
+       agree on a mangled string as happily as a clean one), which is why it
+       was left out of that unit and given its own. */
     chatMarks.push({ c: openChat.id, i: i, s: s, e: e,
-                     t: txt.textContent.slice(s, e).slice(0, 400),
+                     t: cutText(txt.textContent.slice(s, e), 400),
                      at: new Date().toISOString() });
     sel.removeAllRanges();
     renderThread();
@@ -8194,9 +8447,30 @@ What it adds when the server is there:
   /* Opening a bookmarked conversation from the Bookmarks list. It has to switch
      the sidebar to the chat side as well as load the conversation, since the
      list it was clicked from lives on the notes side. */
-  function openSavedChat(id) {
-    var c = chats.filter(function (x) { return x.id === id; })[0];
-    if (!c) { S.toast('That conversation is no longer saved.'); return; }
+  /* 🔴 THE ROW IS THE ARGUMENT NOW, NOT ITS `c`. Passing the ordinal was the
+     defect: `c` names a conversation only on the device that made it, so a
+     bookmark adopted from the other Mac opened whatever this Mac happened to
+     hold at that number. Nothing warned, and the conversation that opened was a
+     real one of the reader's, which reads as having pressed the wrong row.
+
+     🟢 The identity is tried first and the ordinal is the FALLBACK, for rows
+     written before `k` existed. ⚠️ And the fallback is guarded by the TITLE:
+     without that guard it is the original bug, because an ordinal on its own is
+     exactly what cannot be trusted. A row that can be named neither way says so
+     rather than opening something. */
+  function openSavedChat(row) {
+    var want = (row && typeof row === 'object') ? row : { c: row };
+    var c = null;
+    if (want.k) {
+      c = chats.filter(function (x) { return chatKey(x) === want.k; })[0] || null;
+    }
+    if (!c && want.c !== undefined && want.c !== null) {
+      c = chats.filter(function (x) { return x.id === want.c; })[0] || null;
+      /* The other Mac's ordinal landing on one of ours. A title that disagrees
+         is the only evidence available here, and it is enough to refuse. */
+      if (c && want.t && String(chatTitle(c) || '') !== String(want.t)) { c = null; }
+    }
+    if (!c) { S.toast('That conversation is not saved on this Mac.'); return; }
     openChat = c;
     showChat();
     renderThread();
@@ -8226,7 +8500,14 @@ What it adds when the server is there:
     if (gone) {
       chatBooks = dropRow(chatBooks, gone);
     } else {
-      chatBooks.push({ c: id, t: title, at: new Date().toISOString() });
+      /* 🔴 `k` IS THE ONE THAT SURVIVES THE TRIP TO THE OTHER MAC. `c` is a
+         per-device ordinal, so a row adopted from the other Mac named ITS chat
+         3 and opening it here opened OUR chat 3, silently, and the conversation
+         that opened was a real one of the reader's, which is what made it hard
+         to notice. `c` is kept because `chatbook_key` rests on it and because a
+         row written before this still has only that. */
+      chatBooks.push({ c: id, k: chatKey(openChat), t: title,
+                       at: new Date().toISOString() });
     }
     var others = chatBooks.filter(here).length;
     saveChatMarks().then(function (r) {
@@ -8419,7 +8700,7 @@ What it adds when the server is there:
       go.type = 'button';
       go.className = 'go';
       go.textContent = cb.t || 'A conversation';
-      go.addEventListener('click', function () { openSavedChat(cb.c); });
+      go.addEventListener('click', function () { openSavedChat(cb); });
       wrap.appendChild(go);
       var row = document.createElement('div');
       row.className = 'row';
@@ -8645,6 +8926,14 @@ What it adds when the server is there:
                 function (b) {
                   if (!b.ok || !b.cards) { return false; }
                   cards = b.cards;
+                  /* 🔴 THE ONLY PLACE THE BASE IS SEEDED, the rule the other
+                     four already follow: this is the one point at which the
+                     page has actually read the file and can honestly say what
+                     it holds. A base seeded on a FAILED read would claim
+                     agreement to an empty file, and the next save would delete
+                     every typed card the other Mac had made. Returning false
+                     above leaves it null, which means "agreed to nothing". */
+                  CARDS_BASE = cardKeys(cards);
                 })
       .then(function () {
         /* 🔴 Still set on BOTH paths, and that is correct: this one means the
@@ -8964,13 +9253,23 @@ What it adds when the server is there:
 
   function saveChats() {
     if (!maySaveSidecar('chats', 'saved conversations')) { return sidecarRefused('saved conversations'); }
+    var mine = keysOf(chats, chatKey);
     return api('/api/chats', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ doc: S.docId, chats: chats })
+      body: JSON.stringify({ doc: S.docId, chats: chats, base: CHATS_BASE })
     })
       .catch(function () {})
-      .then(noticeSave('chats', 'this conversation'));
+      .then(noticeSave('chats', 'this conversation'))
+      .then(function (r) {
+        /* 🔴 MOVED ONLY ON A LANDED SAVE, and to what was SENT rather than to
+           what came back, exactly as the chat marks do it. A base advanced
+           after a refused save would claim agreement to a file this page never
+           wrote, and the next save would delete whatever the other Mac added in
+           between. */
+        if (saveLanded(r)) { CHATS_BASE = mine; }
+        return r;
+      });
   }
 
   /* ---------- R38: the quoted passage takes you back to it ----------
@@ -9320,6 +9619,11 @@ What it adds when the server is there:
      browser's own `overflow-anchor` already fires on a container resize. Nothing
      here sets or clears it. If it turns out to fight this, the escape hatch is
      one declaration, and it needs a browser to decide. */
+  /* 🔴 ONE selector, because a chat mark is an INDEX into it and three copies
+     that drift are three different opinions about what turn 2 is. The
+     `:not(.pending)` is the whole point; see paintChatMarks for the bug. */
+  var CHAT_TXT = '.sv-turn:not(.pending) .txt';
+
   var SV_ANCHOR_SEL = '.wrap p, .wrap li, .wrap h1, .wrap h2, .wrap h3, .wrap h4,' +
                       '.wrap dd, .wrap dt, .wrap figcaption, .wrap blockquote,' +
                       '.wrap td, .wrap th';
@@ -9384,6 +9688,67 @@ What it adds when the server is there:
     if (!by) return false;
     window.scrollTo(0, (window.scrollY || window.pageYOffset || 0) + by);
     return true;
+  }
+
+  /* ---------- the LESSON's text size, EH 2026-09-03 ----------------------
+
+     🟢 THE STEPS AND THE WORDS ARE THE PANEL'S, on purpose: `settings.panelSizes`
+     is the one list, so the reader meets Smaller / Default / Larger / Largest
+     once rather than twice. 🔴 The KEY is its own (`lessonSize`), because they
+     are two controls over two surfaces and wanting a big lesson beside a compact
+     panel is the ordinary case. */
+  /* Assigned by installHead once the header exists, called by loadSettings
+     when the size list arrives. Declared HERE, at the scope both share, rather
+     than assigned as an implicit global from inside installHead. Either order
+     works: installHead runs after loadSettings is CALLED but long before its
+     promise resolves, and it calls this itself in case that ever reverses. */
+  var buildTextMenu = null;
+
+  function lessonScaleFor(id) {
+    var list = (settings && settings.panelSizes) || [];
+    for (var i = 0; i < list.length; i++) { if (list[i].id === id) return list[i].scale; }
+    return 1;
+  }
+
+  function applyLessonSize(id) {
+    document.documentElement.style.setProperty(
+      '--sv-lzoom', String(lessonScaleFor(id) || 1));
+  }
+
+  function paintLessonSize(id) {
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.sv-textmenu [data-lsize]'),
+      function (b) {
+        b.setAttribute('aria-pressed',
+                       b.getAttribute('data-lsize') === id ? 'true' : 'false');
+      });
+  }
+
+  function saveLessonSize(id) {
+    /* Only this key. `write_settings` defaults every other field from what is
+       on disk, so this cannot clobber the palette; same reason as
+       savePanelWidth. */
+    return api('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lessonSize: id })
+    }).catch(function () { S.toast('The lesson text size was not saved.'); });
+  }
+
+  /* 🔴 EH ATTACHED THIS TO THE REQUEST MINUTES AFTER MAKING IT: *"The same
+     should apply when you change the font size."* Scaling the body changes the
+     document's height, so preserving `scrollTop` is the implementation that
+     looks right and moves the reader down the lesson. The ELEMENT anchor above
+     is the one that works, and it already existed for the pane drag: the block
+     the reader is looking at is put back where it was, whatever the reflow did
+     to the pixels above it. */
+  function setLessonSize(id) {
+    var a = anchorNow();
+    if (settings) settings.lessonSize = id;
+    applyLessonSize(id);
+    paintLessonSize(id);
+    anchorRestore(a);
+    return saveLessonSize(id);
   }
 
   function setPanelSpace() {
@@ -11891,12 +12256,47 @@ What it adds when the server is there:
     saveChats().then(function () { chatFab.textContent = 'Chat ' + chats.length; });
   }
 
+  /* 🔴 THE CONVERSATION'S OWN ID, and the one field of it that never changes.
+     `id` below is a per-device ORDINAL and always was: two Macs each starting
+     their first conversation both call it 1, which is the bug that made a
+     bookmarked conversation from the other Mac open the wrong one here. `ts` is
+     no better, and that is the less obvious half: it looks like a creation
+     instant but the client rewrites it on every turn and every answer, because
+     the History list sorts on it. So neither can name a conversation across two
+     devices, and this is minted to.
+
+     Time plus randomness rather than a counter, deliberately: both id traps this
+     project has paid for were ordinals, and a value nobody counts up to cannot
+     be minted the same way twice on two machines. */
+  function newChatId() {
+    return (Date.now().toString(36) +
+            Math.random().toString(36).slice(2, 8)).replace(/[^a-z0-9]/g, '');
+  }
+
   function newChat(term, context, b) {
     var id = 1;
     chats.forEach(function (c) { if (c.id >= id) id = c.id + 1; });
-    return { id: id, ts: Date.now(), term: term || '', context: context || '',
+    return { id: id, cid: newChatId(), ts: Date.now(),
+             term: term || '', context: context || '',
              scope: panelScope || 'lesson',
              b: (b === 0 || b) ? b : null, turns: [] };
+  }
+
+  /* What names a conversation across devices, client side, and it must agree
+     with `chat_key` in `study_server.py`. The derived half is for conversations
+     that predate `cid`: the block, the scope, and the reader's first question,
+     none of which a conversation can change. */
+  function chatKey(c) {
+    if (!c) return null;
+    if (typeof c.cid === 'string' && /^[a-z0-9]{4,32}$/.test(c.cid)) return 'k:' + c.cid;
+    var first = null;
+    (c.turns || []).some(function (t) {
+      if (t && t.role === 'user') { first = cutText(t.text, 300); return true; }
+      return false;
+    });
+    if (!first) return null;
+    return 'd:' + (c.b === null || c.b === undefined ? '' : c.b) + ':' +
+           (c.scope || '') + ':' + first;
   }
 
   /* EH's design (2026-08-22): a question can be asked in the context of
@@ -12051,6 +12451,10 @@ What it adds when the server is there:
   function loadSettings() {
     return api('/api/settings').then(function (r) {
       settings = r.body || {};
+      /* The lesson's own size, applied whether or not the settings panel is
+         ever opened: this is the boot path for the header control. */
+      applyLessonSize(settings.lessonSize);
+      if (buildTextMenu) buildTextMenu();
       modelSel.innerHTML = '';
       (settings.models || []).forEach(function (m) {
         var o = document.createElement('option');
@@ -12224,39 +12628,62 @@ What it adds when the server is there:
     });
   }
 
+  /* ---------- ONE restart, called from two places ----------------------
+
+     🔴 EXTRACTED 2026-09-09, when the relaunch banner gained a button that
+     actually relaunches. Before that the banner opened Settings and focused
+     this button, on a comment reading "the one Relaunch button, reached rather
+     than copied" — and that instinct was RIGHT: two copies of a restart drift
+     the first time either is touched. **So the routine moved and the copy never
+     happened.** The settings panel and the banner now call the same function
+     and differ only in what they SAY and what they do afterwards.
+
+     `say(state, why)` is called with one of four states, and the caller owns
+     every word the reader sees:
+
+       'going'    the POST is away
+       'refused'  the server answered and declined; `why` carries its reason
+       'up'       it went and came back, proven by two consecutive answers
+       'gone'     it did not answer again
+
+     ⚠️ The `catch` is not an error path. The process replaces itself mid-request
+     on some routes, so the connection dying IS the expected shape of success,
+     and both branches therefore ask `waitForServer` rather than concluding
+     anything from the request itself. */
+  function relaunchServer(say) {
+    var settle = function (up) { say(up ? 'up' : 'gone'); return up; };
+    say('going');
+    return api('/api/restart', { method: 'POST',
+                                 headers: { 'Content-Type': 'application/json' },
+                                 body: '{}' })
+      .then(function (r) {
+        if (!r.body || r.body.ok !== true) {
+          say('refused', (r.body && r.body.error) ||
+                         'The server would not relaunch.');
+          return false;
+        }
+        return waitForServer(20).then(settle);
+      })
+      ['catch'](function () { return waitForServer(20).then(settle); });
+  }
+
   restartBtn.addEventListener('click', function () {
     if (restartBtn.disabled) return;
     restartBtn.disabled = true;
-    restartNote.textContent = 'Relaunching…';
-    api('/api/restart', { method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: '{}' })
-      .then(function (r) {
-        if (!r.body || r.body.ok !== true) {
-          restartNote.textContent = (r.body && r.body.error) ||
-            'The server would not relaunch.';
-          restartBtn.disabled = false;
-          return;
-        }
-        return waitForServer(20).then(function (up) {
-          restartNote.textContent = up
-            ? 'Relaunched, and answering again. Reload the page to pick up any change.'
-            : 'It did not answer again. It may need starting by hand on ' +
-              hostWord() + '.';
-          restartBtn.disabled = false;
-        });
-      })
-      .catch(function () {
-        /* The connection dying is the expected shape of success here, because
-           the process replaces itself mid-request on some paths. */
-        waitForServer(20).then(function (up) {
-          restartNote.textContent = up
-            ? 'Relaunched, and answering again. Reload the page to pick up any change.'
-            : 'It did not answer again. It may need starting by hand on ' +
-              hostWord() + '.';
-          restartBtn.disabled = false;
-        });
-      });
+    relaunchServer(function (state, why) {
+      /* ⚠️ This one does NOT reload the page, and the banner's does. The
+         difference is deliberate: the banner exists only to say the code is
+         stale, so reloading completes it, whereas this panel is full of other
+         controls somebody may be part-way through. It says what to do instead. */
+      restartNote.textContent =
+        state === 'going'   ? 'Relaunching…' :
+        state === 'refused' ? why :
+        state === 'up'      ? 'Relaunched, and answering again. Reload the page '
+                              + 'to pick up any change.'
+                            : 'It did not answer again. '
+                              + 'It may need starting by hand on ' + hostWord() + '.';
+      if (state !== 'going') { restartBtn.disabled = false; }
+    });
   });
 
   /* Put the explanation back when the panel is reopened, so a stale outcome
@@ -12760,8 +13187,15 @@ What it adds when the server is there:
     var sel = window.getSelection();
     var node = (sel && sel.rangeCount) ? sel.getRangeAt(0).startContainer : null;
     var host = node ? (node.nodeType === 1 ? node : node.parentNode) : null;
+    /* 🔴 `CHAT_TXT` here too, and this is the site that makes the fix VISIBLE
+       rather than merely correct. Excluding the pending box from the two walks
+       above stops the wrong mark being stored, but the button would still be
+       offered and pressing it would do nothing at all. This rule is the one
+       that means it is never offered, which is what this comment already
+       claimed: Highlight only offers itself where it can actually anchor, and
+       a line that will be replaced by another turn is not somewhere to anchor. */
     mini.querySelector('[data-mini-hl]').hidden =
-      !(where === 'panel' && openChat && host && host.closest && host.closest('.sv-turn .txt'));
+      !(where === 'panel' && openChat && host && host.closest && host.closest(CHAT_TXT));
 
     mini.hidden = false;
     var w = mini.offsetWidth, h = mini.offsetHeight;
@@ -13345,7 +13779,7 @@ What it adds when the server is there:
        server: a rebuild, the kit's builder, the verifier. There is nothing for
        it to be stale against, which is a different answer from "current" and is
        treated as one. */
-    if (!S.servedBuild || svBuildTold) return;
+    if (!S.servedStamp || svBuildTold) return;
     var now = Date.now();
     if (now - svBuildCheckedAt < 30000) return;
     svBuildCheckedAt = now;
@@ -13369,7 +13803,7 @@ What it adds when the server is there:
          Silence is the only honest answer to "I cannot tell", and it is also
          what covers the moment between saving this file and restarting the
          server. */
-      if (id && id !== S.servedBuild) svNoteStale();
+      if (id && id !== S.servedStamp) svNoteStale();
     })['catch'](function () { /* unreachable is not stale */ });
   }
 
@@ -14508,6 +14942,14 @@ What it adds when the server is there:
               function (b) {
                 if (!Array.isArray(b.chats)) { return false; }
                 chats = b.chats;
+                /* 🔴 SEEDED HERE AND NOWHERE ELSE, the rule the chat marks
+                   already follow: this is the one point at which the page has
+                   actually read the file and can honestly say what it holds. A
+                   base seeded on a FAILED read would claim agreement to an
+                   empty file, and the next save would delete every conversation
+                   the other Mac had. `loadSidecar` returning false leaves it
+                   null, which means "agreed to nothing". */
+                CHATS_BASE = keysOf(chats, chatKey);
               })
     .then(function (ok) {
       if (ok && chats.length) { chatFab.textContent = 'Chat ' + chats.length; }
@@ -15041,7 +15483,16 @@ What it adds when the server is there:
           'Settings</button>' +
       '</nav>' +
       '<button type="button" class="sv-burger" aria-expanded="false" aria-controls="svMenu">' +
-        '<span class="sv-bars" aria-hidden="true"></span>Menu</button>';
+        '<span class="sv-bars" aria-hidden="true"></span>Menu</button>' +
+      /* 🔴 LAST IN THE DOM, and that IS the placement: "locked to the very
+         right of that bar". With no `order` at wide widths the row lays out in
+         DOM order, so last here is rightmost there; the 1048 rung gives it the
+         tools' order so it stays rightmost on row 1 below that too. */
+      '<button type="button" class="sv-textbtn" aria-expanded="false"' +
+        ' aria-controls="svTextMenu" aria-label="Lesson text size"' +
+        ' title="Lesson text size">' +
+        '<span class="sv-tsz" aria-hidden="true"><i>A</i><b>A</b></span>' +
+      '</button>';
     head.querySelector('.sv-headkey').textContent = readableKey(S.docId);
 
     var menu = document.createElement('div');
@@ -15222,8 +15673,70 @@ What it adds when the server is there:
       window.addEventListener('resize', fitCrumbName);
     }
 
+    /* 🔴 The four options are rendered from `settings.panelSizes` rather than
+       written out here, so the steps and their words exist ONCE. That list
+       arrives with the settings fetch, which is why the icon ships disabled and
+       is enabled by `buildTextMenu()` below: an icon that opens an empty box is
+       worse than one that is briefly not ready, and if the server never answers
+       it correctly stays unavailable rather than lying. */
+    var textMenu = document.createElement('div');
+    textMenu.className = 'sv-textmenu';
+    textMenu.id = 'svTextMenu';
+    textMenu.hidden = true;
+
     document.body.appendChild(menu);
+    document.body.appendChild(textMenu);
     wireRate(head);
+
+    var textBtn = head.querySelector('.sv-textbtn');
+    textBtn.disabled = true;
+
+    function closeTextMenu() {
+      textMenu.hidden = true;
+      textBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    /* Called by loadSettings once the list is known, and again on every later
+       load. Rebuilt rather than patched, because the list is the server's. */
+    buildTextMenu = function () {
+      var list = (settings && settings.panelSizes) || [];
+      if (!list.length) return;
+      textMenu.innerHTML = '';
+      list.forEach(function (sz) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('data-lsize', sz.id);
+        b.setAttribute('aria-pressed', 'false');
+        b.textContent = sz.label;
+        b.addEventListener('click', function () {
+          setLessonSize(sz.id);
+          closeTextMenu();
+        });
+        textMenu.appendChild(b);
+      });
+      textBtn.disabled = false;
+      paintLessonSize((settings && settings.lessonSize) || 'm');
+    };
+    buildTextMenu();
+
+    textBtn.addEventListener('click', function () {
+      var open = textMenu.hidden;
+      /* One at a time: the tools menu drops from the same edge of the same bar
+         and the two would overlap. */
+      if (open) closeMenu();
+      textMenu.hidden = !open;
+      textBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+
+    document.addEventListener('mousedown', function (e) {
+      if (textMenu.hidden) return;
+      if (e.target.closest && (e.target.closest('.sv-textmenu') ||
+                               e.target.closest('.sv-textbtn'))) return;
+      closeTextMenu();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeTextMenu();
+    });
 
     var burger = head.querySelector('.sv-burger');
 
@@ -15266,6 +15779,7 @@ What it adds when the server is there:
 
     burger.addEventListener('click', function () {
       var open = menu.hidden;
+      if (open) closeTextMenu();
       menu.hidden = !open;
       burger.setAttribute('aria-expanded', open ? 'true' : 'false');
       if (open) paintHead();

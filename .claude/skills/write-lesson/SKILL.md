@@ -119,6 +119,13 @@ anything:
 1. **List what is actually there** and say what you found, by part. A folder is
    usually one part's deck and transcript, but it can be a whole week, and
    turning a week into one lesson is the wrong shape.
+   🔴 **If the material is a course PACKAGE rather than files, ask the package
+   what it contains before scraping the screen.** For a Rise package that is
+   `await window.__fetchCourse()`, which returns structured data and puts no OCR
+   anywhere in the chain. **Scraping a thing that has an index is how a wrong
+   count gets in**, and a wrong count here becomes a lesson written from half a
+   lecture. The **download-keats** skill carries the rest of this, including the
+   count assertion that goes with it.
 2. **Read the PDFs.** Your file-reading tool renders PDF pages, so read them
    rather than shelling out to a text extractor: the extractor loses the layout,
    and the layout is where the slide-corner citations live. Read every page,

@@ -1,5 +1,5 @@
 {
- "version": "2026.09.09+58a8bef",
+ "version": "2026.09.09a+850eeda",
  "url": "https://github.com/ehawkin/study-hub/releases/latest",
- "note": "v2026.09.08 could not start: two files the server needs were missing from the download. This one was unpacked and started before it was published."
+ "note": "Course collection now handles website-shaped courses, the setup wizard no longer hands you a prompt to fill in, captions are part of onboarding, and lecture transcripts follow a corrected three-file rule."
 }

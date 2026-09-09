@@ -132,7 +132,7 @@ T_COURSE_NAME = "@@COURSE_NAME@@"
 # server: the kit's builder, a rebuild, the verifier. Those pages have no server
 # to be stale against, and a page that carried the BUILDING machine's id would
 # ask a reader on another machine to reload for ever.
-T_BUILD_ID = "@@BUILD_ID@@"
+T_PAGE_STAMP = "@@BUILD_ID@@"
 # 🔴 What to call the machine the server runs on, for the two sentences that
 # have to name it: where an attached file is kept, and where to go if the
 # server stops answering. The reader said "the Mini" until 2026-08-30, which is
@@ -313,7 +313,7 @@ def build_shell(lessons):
 
 def render(shell, layer, meta, body, title=None, cls="", store_prefix=DEFAULT_STORE_PREFIX,
            served_from="", course_name="", nav=None, state=None, pdfjs="",
-           machine_name="", build_id=""):
+           machine_name="", stamp=""):
     """The page the browser gets: shell, with this lesson's facts in it.
 
     🔴 `served_from` is the origin this page is being composed FOR, and it is how
@@ -330,7 +330,7 @@ def render(shell, layer, meta, body, title=None, cls="", store_prefix=DEFAULT_ST
     out = out.replace(T_STORE_PREFIX, js_escape(store_prefix))
     out = out.replace(T_SERVED_FROM, js_escape(served_from))
     out = out.replace(T_COURSE_NAME, js_escape(course_name))
-    out = out.replace(T_BUILD_ID, js_escape(build_id))
+    out = out.replace(T_PAGE_STAMP, js_escape(stamp))
     out = out.replace(T_MACHINE_NAME, js_escape(machine_name))
     out = out.replace(T_PDFJS, js_escape(pdfjs))
     # 🔴 `<` becomes \u003c BEFORE js_escape, so a lesson title containing
@@ -350,7 +350,7 @@ def render(shell, layer, meta, body, title=None, cls="", store_prefix=DEFAULT_ST
     # lesson must never be able to break its own page.
     left = [t for t in [T_TITLE, T_BODY, T_LAYER, T_DOC_ID, T_DOC_TITLE,
                         T_STORE_PREFIX, T_SERVED_FROM,
-                        T_COURSE_NAME, T_MACHINE_NAME, T_BUILD_ID, T_LESSON_NAV,
+                        T_COURSE_NAME, T_MACHINE_NAME, T_PAGE_STAMP, T_LESSON_NAV,
                         T_LESSON_STATE, T_PDFJS] + list(T_VAULT.values())
             if t in out]
     if left:

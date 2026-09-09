@@ -121,9 +121,20 @@ def _local_module_files(root=None):
     measured it with a control: the same harness saw `split_lessons.py` move and
     saw those three sit still.
 
-    🟢 The transitive closure of LOCAL imports, at any indent depth. Today
-    that is exactly six files, and `anchors.py` is correctly outside it: it is a
-    test helper the server never imports.
+    🟢 The transitive closure of LOCAL imports, at any indent depth, and
+    `anchors.py` is correctly outside it: it is a test helper the server never
+    imports.
+
+    🔴🔴 THE COUNT BELOW IS THE ONLY ONE IN THIS FILE AND A TEST HOLDS IT TO
+    THE TRUTH. It said "exactly six" from 2026-09-01, and it was **six, then
+    seven, then nine**: three wrong numbers for one list, in a docstring whose
+    own argument is that hand-maintained module lists go stale. ⚠️ The fix is
+    not to delete the number, which would lose something useful; it is that
+    `test_build_id` parses THIS sentence and asserts it against
+    `len(_local_module_files())`, so it cannot drift again without going red.
+    **Say it in exactly this shape, once, or the test will not find it.**
+
+    Today the closure holds exactly 9 files.
 
     🔴 THE TWO OBVIOUS ALTERNATIVES BOTH LOSE, and the reasons are worth
     keeping because both will be re-proposed.
@@ -166,7 +177,10 @@ def _local_module_files(root=None):
     which is the smallest honest degradation and keeps `/healthz` answering
     through exactly the breakage it is there to report.
 
-    Cost, measured 2026-09-01: 42ms for the six, once, at import.
+    Cost, measured 2026-09-01: 42ms for the closure, once, at import.
+    ⚠️ No count here on purpose. A timing note does not need one, and two
+    sites carrying the same number is how this docstring went stale the
+    first time: one was updated and the other was the site nobody read.
     """
     root = Path(root or __file__).resolve()
     here = root.parent
@@ -781,12 +795,15 @@ def module_url(cfg, module_id):
     return "/m/%s/" % module_id
 
 
-def create_module(root, module_id, name="", class_name=""):
+def create_module(root, module_id, name="", class_name="",
+                  project_link=None):
     """Make a course folder and its identity file. Returns the folder.
 
-    🟢 `class_name` IS asked for now, since 2026-08-30. The add-course
-    page (`ADD_COURSE_PAGE`) asks for the full name, the short name and the code,
-    all three required, and `POST /api/modules` sends all three. Until that day
+    🟢 `class_name` IS asked for now, since 2026-08-30, and `project_link`
+    since 2026-09-09. The add-course page (`ADD_COURSE_PAGE`) asks for the full
+    name, the short name and the code, all three required, plus the vault
+    project name, which is optional and defaults to `KCL - <short name>`.
+    `POST /api/modules` sends all four. Until that day
     this docstring said `class_name` was API-only and that no path a user could
     reach supplied it, which was true and is the reason the field existed
     unused: the home page's Add form had exactly two inputs.
@@ -836,6 +853,21 @@ def create_module(root, module_id, name="", class_name=""):
     # carry a field nobody set.
     if str(class_name or "").strip():
         facts["class_name"] = str(class_name).strip()
+    # 🔴 THE THREE-STATE FIELD, and the distinction is the whole of EH's ask
+    # (2026-09-08, from setting it by hand on the third course in a row):
+    #
+    #   None  nobody was asked. The kit's pack-import path, which has no one to
+    #         ask, and every course made before 2026-09-09. The key is ABSENT,
+    #         and `verify_course` reports the course's identity as partial.
+    #   ""    asked and deliberately left empty: this course does not go to a
+    #         vault. The key is PRESENT and empty, which is DECLARED, not
+    #         missing, and the gate must stop nagging about it.
+    #   text  the vault project this course's notes are filed under.
+    #
+    # ⚠️ `is None` rather than a truthiness test, because "" is a real answer
+    # here and the two are the states that must not be collapsed.
+    if project_link is not None:
+        facts["project_link"] = str(project_link).strip()
     (folder / "settings.json").write_text(
         json.dumps({"module": facts}, indent=2) + "\n", encoding="utf-8")
     return folder
@@ -2446,6 +2478,19 @@ PANEL_SIZES = [
 PANEL_SIZE_IDS = {e["id"] for e in PANEL_SIZES}
 DEFAULT_PANEL_SIZE = "m"
 
+# EH, 2026-09-03: "it would be nice to have something that lets you change the
+# font size, especially in the main left pane with the lessons."
+#
+# 🟢 THE SAME FOUR STEPS AND THE SAME FOUR WORDS as the panel above, deliberately.
+# It is one idea on a second surface, and giving the reader two vocabularies for
+# one idea is how they drift apart. So `PANEL_SIZES` is the list for both.
+#
+# 🔴 BUT A SEPARATE KEY, for the reason `playbackRate` and `lectureRate` are
+# separate keys: two controls over two surfaces. Wanting a big lesson beside a
+# compact panel is the ordinary case, not a corner one, and reading one from the
+# other would make the second control a lie.
+DEFAULT_LESSON_SIZE = "m"
+
 # R19: how wide the right-hand pane is, in CSS pixels, dragged by its left edge.
 # Stored here for the same reason panelSize is: both Macs should agree.
 #
@@ -2544,6 +2589,12 @@ def read_settings(cfg):
     size = data.get("panelSize")
     if size not in PANEL_SIZE_IDS:
         size = DEFAULT_PANEL_SIZE
+    # Same list, separate key; see DEFAULT_LESSON_SIZE. Fallen back rather than
+    # rejected here for the reason every other read is: a settings file edited
+    # by hand into something invalid should not take the reader down with it.
+    lesson_size = data.get("lessonSize")
+    if lesson_size not in PANEL_SIZE_IDS:
+        lesson_size = DEFAULT_LESSON_SIZE
     width = clean_panel_width(data.get("panelWidth"), DEFAULT_PANEL_W)
     rate = clean_rate(data.get("playbackRate"))
     # 🔴 A SECOND RATE, AND IT IS A DIFFERENT THING FROM THE ONE ABOVE.
@@ -2588,6 +2639,7 @@ def read_settings(cfg):
         "lastColour": last,
         "panelSize": size,
         "panelSizes": PANEL_SIZES,
+        "lessonSize": lesson_size,
         "panelWidth": width,
         "panelWidthMin": PANEL_W_MIN,
         "panelWidthMax": PANEL_W_MAX,
@@ -2616,6 +2668,12 @@ def write_settings(cfg, payload):
     size = payload.get("panelSize", current["panelSize"])
     if size not in PANEL_SIZE_IDS:
         raise ValueError("unknown panel text size")
+    # Rejected rather than clamped, exactly like the panel size above it: the
+    # four ids have no nearest legal value, and quietly reading a typo as
+    # "Default" would look identical to the reader choosing Default.
+    lesson_size = payload.get("lessonSize", current["lessonSize"])
+    if lesson_size not in PANEL_SIZE_IDS:
+        raise ValueError("unknown lesson text size")
     # Clamped rather than rejected: a drag that ends outside the bounds should
     # settle at the bound, not throw away the whole save (which carries the
     # palette with it).
@@ -2643,12 +2701,14 @@ def write_settings(cfg, payload):
     keep.update({
         "model": model, "level": lvl, "palette": palette, "lastColour": last,
         "panelSize": size, "panelWidth": width, "vaultEnabled": vault_on,
+        "lessonSize": lesson_size,
         "playbackRate": rate, "lectureRate": lecture_rate,
         "captionsOn": captions_on,
     })
     write_json_sidecar(settings_path(cfg), keep)
     return {"ok": True, "model": model, "level": lvl,
             "palette": palette, "lastColour": last, "panelSize": size,
+            "lessonSize": lesson_size,
             "panelWidth": width, "vaultEnabled": vault_on,
             "playbackRate": rate, "lectureRate": lecture_rate,
             "captionsOn": captions_on}
@@ -3621,6 +3681,149 @@ def read_cards(cfg, doc_id):
     return {"ok": True, "doc": doc_id, "cards": cards if isinstance(cards, dict) else {}}
 
 
+# Two kinds of key, because a card can come from two places (R5). A card made on
+# the page is keyed by its mark id, an integer the page issues. A card made
+# inside a chat answer, or typed by hand since R44, has no mark to key on, so it
+# carries its own "c" + base36 stamp. Keeping them in one file means one Cards
+# list rather than two, which is what he asked for.
+CARD_KEY_RE = re.compile(r"^(\d{1,9}|c[a-z0-9]{1,24})$")
+# 🔴 The stamp half, on its own, because it is the half that is an IDENTITY.
+CARD_STAMP_RE = re.compile(r"^c[a-z0-9]{1,24}$")
+
+
+def card_key(key):
+    """What identifies a CARD across two devices, or None when nothing does.
+
+    🔴🔴 **THE ANSWER IS NOT ONE ANSWER, AND THAT IS THIS SIDECAR'S FINDING.**
+    The five-sidecars entry called cards "the TRAP this entry's five-questions
+    ruling exists for, not the free one", and said to do it LAST. The reason it
+    gave is right and is only half of it: the file is **two collections sharing
+    one document**, with opposite identities and opposite losses.
+
+    | kind | its key | device-independent? | recoverable if lost? |
+    | --- | --- | --- | --- |
+    | `from: "mark"` | the mark's `id` | 🔴 **no**, a local ordinal | 🟢 **yes** |
+    | `from: "chat"` | `c` + a base36 stamp | 🟢 **yes** | 🔴 **no** |
+    | `from: "typed"` | `c` + a base36 stamp | 🟢 **yes** | 🔴 **no** |
+
+    🟢 **SO THE KEY ITSELF IS THE IDENTITY, for exactly the two kinds whose key
+    is a creation stamp.** `markless()` mints it once, in one place, and nothing
+    in the client ever writes it again -- the same property that made `cid` the
+    answer for a saved conversation, arrived at independently here because the
+    stamp was already being minted for a different reason.
+
+    🔴 **AND THERE IS NO IDENTITY FOR THE THIRD KIND. It is refused rather than
+    invented**, which is the entry's own ruling applied: a key must be chosen
+    against what CHANGES it. A mark card's key is `mark.id`, and `merge_marks`
+    RENUMBERS every mark it adopts from another device (`_renumber`, so an
+    adopted mark cannot land on an id the writer is already using). **So a mark
+    card sitting on disk under a key this writer does not hold names a mark that
+    has, by construction, already been renumbered to something else.** Adopting
+    it would file one highlight's definition under another highlight's term:
+    a card reported kept when it had in fact been replaced, which is the entry's
+    own sentence and is a WRONG ANSWER rather than a loss.
+
+    ⚠️ **WHAT THAT COSTS, said plainly rather than left as a silence:** a mark
+    card the other device made is still dropped by this device's next save,
+    exactly as today. **The cost is a network lookup and not a row**: the MARK
+    survives its own merge, the Cards list is built by walking the marks
+    (`cardItems()` in the layer, not the sidecar), and `fillCards()` re-resolves
+    any card-coloured mark that has no definition on load. That is the whole
+    reason `write_cards` was left out of the first shrink-guard sweep and the
+    reason the comment there calls cards "DERIVED and recreatable". **The two
+    kinds that are NOT recreatable are the two this merge rescues.**
+
+    🔴 **WHAT WOULD INVALIDATE IT:** a client that rewrites a card's key after
+    creation; a second place minting `c` stamps with a different generator; or
+    two devices minting a stamp in the same millisecond, since the stamp is
+    `Date.now().toString(36)` with no random suffix. ⚠️ **The last one is real
+    and it is narrower than it looks in only one direction** -- it needs two
+    devices to press Card inside one millisecond -- **but it fails as a
+    deletion, not a duplicate.** It is filed at the bottom of the build lane
+    rather than fixed here, because changing the generator is a client change
+    whose old data cannot be migrated and it is not what this entry asked for.
+
+    ⚠️ `from` is deliberately NOT consulted. The two are in agreement today
+    (`markless()` is the only minter of a stamp and it is the only source of
+    `chat` and `typed`), and the server CLAMPS an unknown `from` to `"mark"`,
+    so reading `from` would let a malformed row change its own identity. The
+    key is what the file is keyed by; it is what decides.
+    """
+    k = str(key)
+    return k if CARD_STAMP_RE.match(k) else None
+
+
+def merge_cards(disk, sent, base):
+    """Everything the writer sent, plus the STAMPED cards on disk it never saw.
+
+    🔴 THE SAME RULE AS THE OTHER FOUR: **a write may delete only what the
+    writer knows about.** A browser's knowledge is what it is sending plus
+    `base`, the keys it last agreed the file held.
+
+    🔴 **AND IT IS THE ONE SIDECAR THAT DOES NOT USE `_unseen`, for a reason
+    that is structural rather than stylistic.** `_unseen` COUNTS rather than
+    testing set membership, because in a list one key can legitimately name two
+    rows (a phrase repeated in one block, highlighted twice). **A card is stored
+    in an OBJECT**, so a key names exactly one row by construction and the
+    multiplicity `_unseen` exists for cannot arise. Reusing it would mean
+    flattening a dict to a list and back to make a counter do nothing.
+    ⚠️ `_agreed_from` IS shared, because the reading of `base` -- absent means
+    agreed to nothing, malformed is an error and never a fallback -- must be
+    identical across all six or the drift this project keeps paying for gets in
+    through the one that spelled it itself.
+
+    🔴 A base-less writer adopts everything it can NAME and deletes nothing it
+    can name, exactly as for the other four; `card_key` argues which rows those
+    are and what the unnameable ones cost.
+    """
+    agreed = _agreed_from(base)
+    held = disk.get("cards")
+    if not isinstance(held, dict):
+        return sent, 0
+    adopted = 0
+    for key, row in held.items():
+        k = card_key(key)
+        if not k:
+            # A mark card. Neither adopted nor rescued, which is today's
+            # behaviour for every card and is argued in full at `card_key`.
+            continue
+        if k in sent:
+            # The writer holds this one. The writer's own row wins, as it does
+            # in all five: the reader is looking at that card right now.
+            continue
+        if agreed[k]:
+            # The writer knew it and did not send it. That is a deletion, and
+            # deleting still works by the same rule that makes adopting work.
+            continue
+        # 🔴 Cleaned again on the way back in. It was cleaned when it was
+        # written, so this is defence rather than repair, and it costs nothing:
+        # the alternative is that the one path which does not validate is the
+        # one carrying rows this writer has never seen.
+        sent[k] = clean_card(row)
+        adopted += 1
+    return sent, adopted
+
+
+def clean_card(row):
+    """One card, clamped. Shared by the payload and by anything the merge
+    adopts, so a row cannot enter the file by a route that validates less."""
+    if not isinstance(row, dict):
+        return None
+    src = str(row.get("from") or "")
+    return {
+        "term": str(row.get("term") or "")[:MAX_CARD_TEXT],
+        "def": str(row.get("def") or "")[:MAX_CARD_TEXT],
+        "source": str(row.get("source") or "")[:120],
+        "url": str(row.get("url") or "")[:500],
+        # R44 added "typed": a card entered by hand in the panel. Clamping
+        # an unknown value to "mark" was the safe default until it silently
+        # orphaned every typed card on reload, because a "mark" card whose
+        # key matches no mark is dropped from the list by design.
+        "from": src if src in ("mark", "chat", "typed") else "mark",
+        "at": str(row.get("at") or "")[:40],
+    }
+
+
 def write_cards(cfg, doc_id, payload):
     cards = payload.get("cards")
     if not isinstance(cards, dict):
@@ -3629,42 +3832,67 @@ def write_cards(cfg, doc_id, payload):
         raise ValueError("too many cards")
     clean = {}
     for key, row in cards.items():
-        if not isinstance(row, dict):
+        got = clean_card(row)
+        if got is None or not CARD_KEY_RE.match(str(key)):
             continue
-        # Two kinds of key, because a card can come from two places (R5). A card
-        # made on the page is keyed by its mark id, an integer the page issues.
-        # A card made inside a chat answer has no mark to key on, so it carries
-        # its own "c" + base36 stamp. Keeping them in one file means one Cards
-        # list rather than two, which is what he asked for.
-        if not re.match(r"^(\d{1,9}|c[a-z0-9]{1,24})$", str(key)):
-            continue
-        src = str(row.get("from") or "")
-        clean[str(key)] = {
-            "term": str(row.get("term") or "")[:MAX_CARD_TEXT],
-            "def": str(row.get("def") or "")[:MAX_CARD_TEXT],
-            "source": str(row.get("source") or "")[:120],
-            "url": str(row.get("url") or "")[:500],
-            # R44 added "typed": a card entered by hand in the panel. Clamping
-            # an unknown value to "mark" was the safe default until it silently
-            # orphaned every typed card on reload, because a "mark" card whose
-            # key matches no mark is dropped from the list by design.
-            "from": src if src in ("mark", "chat", "typed") else "mark",
-            "at": str(row.get("at") or "")[:40],
-        }
+        clean[str(key)] = got
     path = sidecar_path(cfg, doc_id, "cards")
 
-    # 🔴 The same guard, and the reasoning that put it here is in the
-    # helper: cards are DERIVED and recreatable, which is why they were left
-    # out originally, and that argument assumes the network answers and the
-    # source has not moved. `Clear all` is what settled it.
-    keep_the_losing_copy(cfg, path, "cards", doc_id,
-                         lambda d: len(d.get("cards") or {}),
-                         {"cards": clean})
+    if payload.get("base") is None:
+        # 🔴 THE SAME LOG LINE AS THE OTHER FOUR, and for the same reason: every
+        # internal caller says what it knew, so a base-less write is by
+        # construction a page older than this merge, still open somewhere and
+        # still saving. It is how "are there stale clients out there" gets an
+        # answer off a log rather than an argument about how long a tab lives.
+        log(cfg, "cards %s: a write with NO BASE, from a page older than the "
+                 "merge. It adopts what it never saw and can NAME, and deletes "
+                 "nothing it can name." % doc_id)
 
-    write_json_sidecar(path,
-                       {"doc": doc_id, "cards": clean,
-                        "saved": datetime.now(timezone.utc).isoformat(timespec="seconds")})
-    return {"ok": True, "doc": doc_id, "cards": len(clean)}
+    # 🔴 READ, MERGE, WRITE, under one lock, for the fifth and last time and for
+    # the reason the marks path records: this is read-modify-write on one file
+    # inside a threading server, so two devices saving together would both read
+    # the old file and the second would erase what the first adopted.
+    #
+    # ⚠️ `MAX_CARDS` above is a limit on what a client may SEND, not on what the
+    # file may hold afterwards, exactly as `write_additions` argues for its 500.
+    # Truncating after the merge would drop the adopted rows, which are the
+    # other device's typed and chat cards and the one thing here that cannot be
+    # looked up again. It is bounded: a merge only ever adopts rows already on
+    # the disk, so the file settles at the union of the devices rather than
+    # growing on every write.
+    with CARDS_LOCK:
+        clean, adopted = merge_cards(read_json_sidecar(path, {}, cfg),
+                                     clean, payload.get("base"))
+        doc = {"doc": doc_id, "cards": clean,
+               "saved": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+        # 🔴 The same guard, and the reasoning that put it here is in the
+        # helper: cards are DERIVED and recreatable, which is why they were left
+        # out originally, and that argument assumes the network answers and the
+        # source has not moved. `Clear all` is what settled it.
+        #
+        # 🟢 IT NOW PASSES AN IDENTITY, and it is the THIRD call site to manage
+        # one. ⚠️ **It covers two thirds of the file and the guard says so**: a
+        # stamped card carries its key as its identity, a mark card buckets
+        # under `NO_IDENTITY`, so a write that SWAPS one typed card for another
+        # at equal count is no longer silent and the same swap between two mark
+        # cards still is. **That asymmetry is the honest report of what an
+        # identity exists for**, not an unfinished job, and both halves are
+        # measured in `test_guard_compares.py`.
+        #
+        # 🔴 Against the MERGED document, because that is what is about to be
+        # written. Comparing the payload would measure the disk against
+        # something that never reaches it.
+        keep_the_losing_copy(cfg, path, "cards", doc_id,
+                             lambda d: len(d.get("cards") or {}),
+                             doc,
+                             keys=lambda d: [card_key(k)
+                                             for k in (d.get("cards") or {})])
+        write_json_sidecar(path, doc)
+    # `adopted` is reported on every save, zero included, so its absence is
+    # visible: a silent success and a merge that never ran look identical
+    # otherwise, which is how a check stops being one.
+    return {"ok": True, "doc": doc_id, "cards": len(clean), "adopted": adopted}
 
 
 # --- R7: bookmarks, which point at a whole block rather than a range -------------------
@@ -3830,6 +4058,81 @@ def merge_chatmarks(disk, sent, base):
     return sent + keep, len(keep)
 
 
+def chat_key(row):
+    """What identifies a SAVED CONVERSATION across two devices.
+
+    🔴 **`ts` IS NOT IT, AND THAT IS THE WHOLE FINDING OF THIS SIDECAR.** The
+    obvious move is to copy the kept-notes answer, `a:<b>:<ts>`, which is the
+    block plus the instant the reader pressed Keep. It does not transfer, and it
+    fails in the direction that deletes. **A kept note never changes; a
+    conversation grows**, and the client rewrites `c.ts = Date.now()` on every
+    user turn and every answer that lands (three sites in `local-layer.html`).
+    `ts` is LAST ACTIVITY, not creation: it is what the History list sorts on.
+    So a key built on it names a different row after every reply.
+
+    🔴 **`id` IS NOT IT EITHER, and this is the fourth sidecar to carry that same
+    trap.** `newChat` mints `var id = 1; chats.forEach(c => if (c.id >= id) id =
+    c.id + 1)` from THIS device's list, so two devices each starting their first
+    conversation both call it `1`.
+
+    🟢 **SO: `cid`, minted once at creation and never written again.** It is the
+    only field of a conversation that is both device-independent and immutable,
+    because it is the only one created to be. New conversations carry it.
+
+    🟢 **AND A DERIVED KEY FOR THE ONES THAT ALREADY EXIST**, which cannot be
+    given a `cid` retrospectively without one device inventing an identity the
+    other cannot guess. It is built from what a conversation cannot change: the
+    block it was about, the scope it was asked at, and the reader's FIRST
+    question. Appending turns does not touch any of them.
+
+    🔴 **WHAT WOULD INVALIDATE IT**: a client that rewrites `cid`, or that edits
+    a conversation's first question; and, for the derived half only, two
+    genuinely different conversations begun on the same block at the same scope
+    with a byte-identical first question, which the merge would then treat as
+    one. **That collision loses a conversation, so the derived half is a
+    fallback for existing data and not the answer**: every conversation made
+    from now on has a `cid` and cannot collide.
+    """
+    if not isinstance(row, dict):
+        return None
+    cid = row.get("cid")
+    if isinstance(cid, str) and CHAT_CID_RE.match(cid):
+        return "k:" + cid
+    turns = row.get("turns")
+    first = ""
+    if isinstance(turns, list):
+        for t in turns:
+            if isinstance(t, dict) and t.get("role") == "user":
+                first = str(t.get("text") or "")[:300]
+                break
+    if not first:
+        # 🔴 Unnameable, so `_unseen` skips it: neither adopted nor rescued.
+        # The trade is argued in `_unseen`, and adopting a row nothing can match
+        # would duplicate it on EVERY write until the cap refused the save.
+        return None
+    b = row.get("b")
+    scope = str(row.get("scope") or "")
+    return "d:%s:%s:%s" % ("" if b is None else b, scope, first)
+
+
+def merge_chats(disk, sent, base):
+    """A conversation the writer never knew about survives its write.
+
+    🔴 THE ONE SIDECAR WHERE A LOST ROW IS UNRECOVERABLE, which is why it is the
+    last of the five to be built and was not rushed. Marks, bookmarks and cards
+    can be made again by reading the lesson again. **The answers in a
+    conversation were written once, against a page that may since have been
+    rewritten**, and `write_chats` already keeps the losing copy for exactly
+    that reason. This stops the loss instead of archiving it.
+    """
+    agreed = _agreed_from(base)
+    rows = disk.get("chats")
+    keep = _unseen(rows if isinstance(rows, list) else [], sent, agreed, chat_key)
+    if not keep:
+        return sent, 0
+    return sent + keep, len(keep)
+
+
 def merge_chatbooks(disk, sent, base):
     """The other half of the same sidecar, and it needs its own base.
 
@@ -3863,6 +4166,12 @@ def merge_chatbooks(disk, sent, base):
 # it is not derived, and it must not share a file with either the marks or the chats. In
 # particular NOT inside -chats.json, whose entries are rewritten wholesale every time a
 # conversation gains a turn.
+
+# A conversation's own id, minted by the client at creation and never rewritten.
+# Deliberately opaque and deliberately not a number: the two id traps this
+# project has already paid for were both per-device ORDINALS, and a value that
+# cannot be counted up to cannot be minted the same way twice.
+CHAT_CID_RE = re.compile(r"^[a-z0-9]{4,32}$")
 
 MAX_CHAT_MARKS = 1000
 
@@ -3909,7 +4218,14 @@ def write_chatmarks(cfg, doc_id, payload):
         if c in seen:
             continue
         seen.add(c)
+        # 🔴 `k` CARRIED THROUGH, or the fix dies on the first save. It is the
+        # conversation's device-independent identity, and it is what lets a
+        # bookmark adopted from the other Mac open the conversation it names
+        # rather than whatever this Mac holds at the same ordinal. A field the
+        # writer strips is a field that does not exist.
+        k = (row or {}).get("k") if isinstance(row, dict) else None
         cleanchats.append({"c": c,
+                           "k": str(k)[:400] if isinstance(k, str) and k else None,
                            "t": str((row or {}).get("t") or "")[:300] if isinstance(row, dict) else "",
                            "at": str((row or {}).get("at") or "")[:40] if isinstance(row, dict) else ""})
 
@@ -3970,8 +4286,7 @@ def write_chats(cfg, doc_id, payload):
     chats = payload.get("chats")
     if not isinstance(chats, list):
         raise ValueError("chats must be a list")
-    if len(chats) > 200:
-        raise ValueError("too many chats")
+
     clean = []
     for c in chats[:200]:
         if not isinstance(c, dict):
@@ -3979,8 +4294,13 @@ def write_chats(cfg, doc_id, payload):
         turns = c.get("turns")
         if not isinstance(turns, list):
             continue
+        # 🔴 `cid` is carried through verbatim. A field the writer strips is a
+        # field that does not exist: the identity would survive exactly until
+        # the first save.
+        cid = c.get("cid")
         clean.append({
             "id": c.get("id"),
+            "cid": cid if (isinstance(cid, str) and CHAT_CID_RE.match(cid)) else None,
             "ts": c.get("ts"),
             "title": str(c.get("title") or "")[:160],
             "term": str(c.get("term") or "")[:400],
@@ -3997,19 +4317,75 @@ def write_chats(cfg, doc_id, payload):
                        "text": str(t.get("text") or "")[:20000]}
                       for t in turns[:200] if isinstance(t, dict)],
         })
-    doc = {
-        "doc": doc_id,
-        "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "chats": clean,
-    }
     # Audit §3. A conversation is not regenerable: the answers were written
     # once, against a page that may since have been rewritten.
     cpath = sidecar_path(cfg, doc_id, "chats")
-    keep_the_losing_copy(cfg, cpath, "chats", doc_id,
-                         lambda d: len(d.get("chats") or []),
-                         doc)
-    write_json_sidecar(cpath, doc)
-    return {"ok": True, "chats": len(clean)}
+
+    if payload.get("base") is None:
+        # 🔴 THE SAME LOG LINE AS THE OTHER FOUR, and for the same reason: a
+        # base-less write is by construction a page older than this merge, still
+        # open somewhere and still saving. It is how "are there stale clients out
+        # there" gets an answer off a log rather than an argument.
+        log(cfg, "chats %s: a write with NO BASE, from a page older than the "
+                 "merge. It adopts what it never saw and can NAME, and deletes "
+                 "nothing it can name." % doc_id)
+
+    # 🔴 READ, MERGE, WRITE UNDER ONE LOCK. This is read-modify-write on one
+    # file inside a threading server: outside the lock, two devices saving
+    # together both read the old file and the second erases what the first
+    # adopted, which is the very loss this merge exists to stop.
+    with CHATS_LOCK:
+        disk = read_json_sidecar(cpath, {})
+        clean, adopted = merge_chats(disk, clean, payload.get("base"))
+        # 🔴 THE CAP IS APPLIED AFTER THE MERGE, not before it. Refusing the
+        # whole save because rescuing rows crossed 200 would turn a two-device
+        # collision into a lesson that cannot be saved at all, which `_unseen`
+        # already argues is the worse outcome.
+        #
+        # 🔴 AND IT DROPS THE LEAST RECENTLY ACTIVE, NOT THE FIRST OR THE LAST.
+        # Both of those are wrong here and a slice was the first thing written:
+        # after the merge the list is the writer's own rows followed by the rows
+        # rescued from disk, so `clean[-200:]` throws away the conversation the
+        # reader just had in order to keep the other Mac's, and `clean[:200]`
+        # throws away everything rescued. A test caught it.
+        #
+        # 🟢 `ts` IS THE RIGHT FIELD FOR THIS, and it is the same field that is
+        # WRONG as an identity: it is last activity, which is exactly what
+        # "least recently used" needs and exactly what an identity must not be.
+        # The History list already sorts on it for the same reason.
+        if len(clean) > 200:
+            def _recency(c):
+                v = c.get("ts")
+                return v if isinstance(v, (int, float)) else 0
+            survivors = set(id(c) for c in sorted(clean, key=_recency,
+                                                  reverse=True)[:200])
+            clean = [c for c in clean if id(c) in survivors]
+        doc = {
+            "doc": doc_id,
+            "updated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "chats": clean,
+        }
+        # 🟢 IT PASSES AN IDENTITY, added 2026-09-09 with the CARDS merge and
+        # not with this one, which is the finding: `chat_key` shipped hours
+        # earlier and the guard beside it was left counting. **The sidecar where
+        # a lost row is unrecoverable was the one still measured by a tally**,
+        # so a write that swapped one conversation for another at equal count
+        # was silent here and caught in `marks`. The gap was invisible because
+        # both halves were individually correct.
+        #
+        # ⚠️ ONE ENTRY PER ROW, `None` INCLUDED. The guard buckets an unnameable
+        # conversation under `NO_IDENTITY` so that losing one is still visible;
+        # filtering here would make a conversation with no question yet free to
+        # disappear. It is the asymmetry `_unseen` documents, and it must not be
+        # tidied into agreement.
+        keep_the_losing_copy(cfg, cpath, "chats", doc_id,
+                             lambda d: len(d.get("chats") or []),
+                             doc,
+                             keys=lambda d: [chat_key(c) if isinstance(c, dict)
+                                             else None
+                                             for c in (d.get("chats") or [])])
+        write_json_sidecar(cpath, doc)
+    return {"ok": True, "chats": len(clean), "adopted": adopted}
 
 
 # --- R8 and R9: files attached to a lesson ---------------------------------------------
@@ -4909,6 +5285,22 @@ CHATMARKS_LOCK = threading.Lock()
 # `additions` is a fourth file; sharing would serialise saves that cannot
 # collide, and sharing the WRONG one leaves the real race open.
 ADDITIONS_LOCK = threading.Lock()
+
+# 🔴 A FIFTH FILE AND A FIFTH LOCK. Stated again because the comment above was
+# right that every new sidecar is a fresh chance to reach for a lock that
+# happens to be nearby: `chats` is not `chatmarks`, and sharing CHATMARKS_LOCK
+# would serialise saves that cannot collide while leaving this file's real race
+# wide open.
+CHATS_LOCK = threading.Lock()
+
+# 🔴 A SIXTH FILE AND A SIXTH LOCK, and this is the last of them: `cards` is the
+# fifth and final sidecar to gain a merge. Stated once more because the rule has
+# earned it -- every new sidecar is a fresh chance to reach for a lock that
+# happens to be nearby, and `cards` sits beside `marks` in every other sense
+# (its keys ARE mark ids) which makes MARKS_LOCK the tempting wrong answer. It
+# is a different file, so sharing would serialise saves that cannot collide
+# while leaving this file's own race wide open.
+CARDS_LOCK = threading.Lock()
 MAX_BASE_KEYS = 2600      # the 2000 items and 500 notes a payload may carry, and room
 
 
@@ -6149,6 +6541,62 @@ def md_to_blocks(md):
             continue
         out.append("<p>%s</p>" % md_to_inline(" ".join(c.split())))
     return out
+
+
+CORE_IDEAS_SUFFIX = "-core-ideas.md"
+
+
+def core_ideas_path(cfg, unit_id):
+    """Where a week's or a topic's core ideas live: `<unit>-core-ideas.md`.
+
+    The convention is the outlines' (`<DOC>-outline.md`, read for the course
+    digest) one level up, at the week and topic ids `unit_ids()` already
+    derives and the ratings are already keyed on. So nothing new is invented to
+    name the file, and a course whose ids are not W/T/P gets no core ideas for
+    the same reason it gets no week ratings, rather than a file under a guess.
+
+    🔴 The id is CHECKED rather than trusted, because this builds a path and
+    an id can reach here from an imported pack, which is a stranger's text.
+    Returns None for an id this refuses.
+    """
+    if not DOC_ID_RE.match(str(unit_id or "")):
+        return None
+    return cfg["notes_dir"] / (unit_id + CORE_IDEAS_SUFFIX)
+
+
+def core_ideas_html(cfg, unit_id):
+    """The rendered blocks for a unit, or "" when there is nothing written.
+
+    ⚠️ The empty string carries the whole of the no-pill rule, which is the
+    entry's own: a week or topic with nothing written shows NO pill, rather
+    than a pill that opens an empty panel. So a file that exists but holds only
+    whitespace has to come back empty too, and an unreadable one must not raise
+    on a page that has nothing else to do with core ideas.
+    """
+    path = core_ideas_path(cfg, unit_id)
+    try:
+        if path is None or not path.is_file():
+            return ""
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    return "".join(md_to_blocks(text))
+
+
+def core_ideas_panel(cfg, unit_id, label):
+    """The pill and its in-place panel, or "" for a unit with nothing written.
+
+    `<details>`/`<summary>` is the in-place pattern this surface already uses
+    (the gear, the glossary sections, the help page), which is what EH's
+    *"not to open as a separate lesson page"* asks for without inventing a
+    third interaction.
+    """
+    body = core_ideas_html(cfg, unit_id) if unit_id else ""
+    if not body:
+        return ""
+    return ('<details class="hci"><summary class="hcip">Core ideas</summary>'
+            '<div class="hcib" aria-label="%s">%s</div></details>'
+            % (html_mod.escape(label, quote=True), body))
 
 
 def apply_range_edit(cfg, payload, doc_id, path):
@@ -7604,6 +8052,10 @@ ADD_COURSE_PAGE = """<!-- study-addcourse -->
   }
   .q input:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
   .q .eg { margin:6px 0 0; color:var(--muted); font-size:.8rem; }
+  /* The one field that is allowed to be empty says so in its own label, so a
+     reader is not left wondering whether they have missed something. */
+  .q .opt { font-weight:400; font-size:.78rem; color:var(--muted);
+            text-transform:uppercase; letter-spacing:.06em; margin-left:6px; }
   .warn { margin:12px 0 0; padding:10px 12px; border-radius:9px; font-size:.84rem;
           color:var(--ink-soft); background:var(--accent-wash);
           border-left:3px solid var(--broken); max-width:56ch; }
@@ -7663,6 +8115,20 @@ ADD_COURSE_PAGE = """<!-- study-addcourse -->
          moving the folder and losing what you have marked.</p>
     </div>
 
+    <div class="q">
+      <label for="cvault">Its folder in your vault <span class="opt">optional</span></label>
+      <p class="why">Study Hub can publish the notes and highlights you make here
+         into your Obsidian vault. This names the project they are filed under.
+         It fills itself in from the short name, so most of the time you can
+         leave it alone.</p>
+      <input id="cvault" type="text" autocomplete="off"
+             placeholder="KCL - Affective Disorders"
+             aria-label="The vault project this course&#39;s notes are filed under">
+      <p class="eg">For example: KCL &#8211; Affective Disorders</p>
+      <p class="why"><b>Empty is a real answer.</b> Clear the box if this course
+         does not go to a vault, and nothing will ask you about it again.</p>
+    </div>
+
     <div class="go">
       <button type="button" id="makeit">Create the course</button>
       <a class="plain" href="/home">Not now</a>
@@ -7676,6 +8142,7 @@ ADD_COURSE_PAGE = """<!-- study-addcourse -->
   var full = document.getElementById('cfull');
   var short_ = document.getElementById('cshort');
   var code = document.getElementById('ccode');
+  var vault = document.getElementById('cvault');
   var btn = document.getElementById('makeit');
   var says = document.getElementById('says');
 
@@ -7687,6 +8154,20 @@ ADD_COURSE_PAGE = """<!-- study-addcourse -->
   /* All three are required, and the message NAMES the missing one rather than
      saying "fill in the form": three fields in one card is exactly where a
      generic complaint makes somebody hunt. */
+  /* The vault name follows the short name until the reader touches it, and
+     then stops for good. EH standardised the shape on 2026-09-08: "I think we
+     should standardize the name to KCL." So the common case is zero keystrokes
+     and the box still shows what will be saved, rather than a default applied
+     invisibly on the server where nobody can see or refuse it. */
+  var vaultTouched = false;
+  vault.addEventListener('input', function () { vaultTouched = true; });
+  function followShort() {
+    if (vaultTouched) { return; }
+    var v = short_.value.trim();
+    vault.value = v ? ('KCL - ' + v) : '';
+  }
+  short_.addEventListener('input', followShort);
+
   function missing() {
     if (!full.value.trim()) {
       return [full, 'Give the course its full name first.'];
@@ -7710,7 +8191,11 @@ ADD_COURSE_PAGE = """<!-- study-addcourse -->
       headers: window.STUDYTOKEN.headers({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ id: code.value.trim(),
                              name: full.value.trim(),
-                             class_name: short_.value.trim() })
+                             class_name: short_.value.trim(),
+                             /* Always sent, even empty: an empty box is the
+                                reader saying "no vault", which is an answer,
+                                and it must not arrive looking like silence. */
+                             project_link: vault.value.trim() })
     }).then(function (r) {
       return r.json().then(function (j) { return { status: r.status, body: j }; });
     }).then(function (r) {
@@ -7765,7 +8250,7 @@ ADD_COURSE_PAGE = """<!-- study-addcourse -->
 # design: it is a different door onto the help page's material, not new
 # machinery.
 #
-# \U0001F534 It is never a gate. Every step has a way straight to the course,
+# 🔴 It is never a gate. Every step has a way straight to the course,
 # and the course works identically for somebody who never sees this page. The
 # one deliberate deviation from plan 04: the materials folder is not stored on
 # the course, because nothing reads it; it goes into the prompt instead, where
@@ -7833,6 +8318,16 @@ WIZARD_PAGE = """<!-- study-wizard -->
   .ptop { display:flex; gap:10px; align-items:baseline; font-size:.95rem;
           color:var(--ink); cursor:pointer; }
   .ptop .already { color:var(--muted); font-size:.82rem; margin-left:auto; }
+  /* 🔴 What a job COSTS, said where the tick happens. The manager's obligation
+     on EH's captions ask: a checkbox that looks like its neighbours and then
+     takes forty minutes is a trap, and the reader who does not know assumes it
+     has hung. Styled as a quiet chip rather than a warning, because it is
+     information and not an error: a red badge on two of five jobs would read as
+     something being wrong. `nowrap` so "tens of minutes" cannot break across
+     two lines and lose its shape at a narrow width. */
+  .ptop .cost { font-weight:600; font-size:.72rem; color:var(--muted);
+                border:1px solid var(--rule); border-radius:999px;
+                padding:1px 7px; margin-left:6px; white-space:nowrap; }
   .popts { margin:8px 0 0 26px; display:flex; flex-direction:column; gap:6px; }
   /* An author display beats the UA's [hidden] rule, so el.hidden alone never
      hid these. Every option block was visible whatever its checkbox said. */
@@ -7882,6 +8377,10 @@ WIZARD_PAGE = """<!-- study-wizard -->
                aria-label="Where the slides and transcripts are">
         <label><input type="radio" name="src-lessons" value="site">
           They are on my course site (KEATS, Moodle, Canvas); download them</label>
+        <input type="text" id="f-site"
+               placeholder="If your course is on Moodle, KEATS or Canvas, paste its address (optional)"
+               autocomplete="off" autocapitalize="off" spellcheck="false"
+               aria-label="The address of your course page">
       </div>
     </div>
 
@@ -7911,15 +8410,34 @@ WIZARD_PAGE = """<!-- study-wizard -->
     </div>
 
     <div class="piece">
+      <label class="ptop"><input type="checkbox" id="w-captions">
+        <span><b>Captions</b> on the lectures, in the lecturer&#8217;s own words
+          <b class="cost">tens of minutes</b></span>
+        <span class="already" id="a-captions"></span></label>
+      <div class="popts" id="o-captions">
+        <p class="hint">Taken from the transcript and timed against the
+           recording, so they are not a machine&#8217;s guess at what was said.
+           Narrated slide packages and plain recordings alike, skipping any
+           lecture that already has them.
+           <b>This one is slow</b>: it listens to every lecture in the course,
+           one at a time, so expect tens of minutes rather than seconds. You can
+           leave it running.</p>
+      </div>
+    </div>
+
+    <div class="piece">
       <label class="ptop"><input type="checkbox" id="w-consol">
         <span><b>Consolidated PDFs</b>, one per week and one for the whole
-          course, for slides and for transcripts</span>
+          course, for slides and for transcripts
+          <b class="cost">a few minutes</b></span>
         <span class="already" id="a-consol"></span></label>
       <div class="popts" id="o-consol">
         <p class="hint">Built from the downloaded slides and transcripts after
            they are cleaned up, so a week reads and prints as one document.
            Needs the course material downloaded (the Lessons job above does
-           that, or say where your folder is in the prompt).</p>
+           that, or say where your folder is in the prompt).
+           Every page is re-read to make it searchable, which takes a few
+           minutes for a course rather than seconds.</p>
       </div>
     </div>
 
@@ -8052,35 +8570,56 @@ WIZARD_PAGE = """<!-- study-wizard -->
   /* ---- the checklist: what to include, and whether it is downloaded ---- */
   var box = { lessons: document.getElementById('w-lessons'),
               videos: document.getElementById('w-videos'),
+              captions: document.getElementById('w-captions'),
               consol: document.getElementById('w-consol'),
               readings: document.getElementById('w-readings') };
   var opts = { lessons: document.getElementById('o-lessons'),
                videos: document.getElementById('o-videos'),
+               captions: document.getElementById('o-captions'),
                consol: document.getElementById('o-consol'),
                readings: document.getElementById('o-readings') };
   var already = { lessons: document.getElementById('a-lessons'),
                   videos: document.getElementById('a-videos'),
+                  captions: document.getElementById('a-captions'),
                   consol: document.getElementById('a-consol'),
                   readings: document.getElementById('a-readings') };
   var folders = { lessons: document.getElementById('f-lessons'),
                   readings: document.getElementById('f-readings') };
   var TOKENS = { lessons: '<paste the slides folder here>',
                  readings: '<paste the readings folder here>' };
+  /* 🔴 EH, 2026-09-08, while adding a real course: "the prompt doesn't actually
+     have the course address ... We should have that as a field in our wizard".
+     The wizard knew how to ask questions and this one question was left in its
+     own output, so a newcomer is handed a prompt containing an instruction to
+     themselves. It is the same shape as `folders` above and deliberately so. */
+  var sites = { lessons: document.getElementById('f-site') };
+  var SITE_TOKENS = { lessons: '<paste the course address here>' };
 
   /* Defaults are the truth: a piece the course lacks starts ticked, a piece
      it already has starts unticked and says so, and either can be changed. */
   box.lessons.checked = !STATUS.lessons;
   box.videos.checked = !STATUS.videos;
   box.readings.checked = !STATUS.readings;
-  /* Consolidated PDFs are an OPTION a person selects (EH, 2026-08-23), like
-     the media downloads: never pre-ticked, whatever the course has. */
-  box.consol.checked = false;
+  /* 🔴 CHANGED 2026-09-08, and it supersedes "never pre-ticked, whatever the
+     course has" (EH, 2026-08-23). Ruled by the manager on EH's own statement of
+     what onboarding is for: it serves "the downloading, organization and
+     processing of course materials for the student as well". A student who
+     onboards a course should end up with the readable, printable documents
+     WITHOUT having to know such a thing exists to ask for. So it is turned OFF
+     rather than on, and now behaves like every other piece: ticked when the
+     course lacks it, unticked and saying so when it already has it. */
+  box.consol.checked = !STATUS.consolidated;
+  /* The same rule as every other piece: ticked when the course lacks it,
+     unticked and saying so when it already has it. */
+  box.captions.checked = !STATUS.captions;
   already.lessons.textContent = STATUS.lessons
     ? 'already in: ' + STATUS.lessons + ' lesson' + (STATUS.lessons === 1 ? '' : 's') : '';
   already.videos.textContent = STATUS.videos
     ? 'already wired for ' + STATUS.videos : '';
   already.readings.textContent = STATUS.readings
     ? 'already in: ' + STATUS.readings : '';
+  already.captions.textContent = STATUS.captions
+    ? 'already on ' + STATUS.captions + ' lecture' + (STATUS.captions === 1 ? '' : 's') : '';
   already.consol.textContent = STATUS.consolidated
     ? 'already built: ' + STATUS.consolidated + ' PDF'
       + (STATUS.consolidated === 1 ? '' : 's') : '';
@@ -8111,8 +8650,29 @@ WIZARD_PAGE = """<!-- study-wizard -->
   var dl = { gate: document.getElementById('w-dl'),
              videos: document.getElementById('w-dl-videos'),
              packs: document.getElementById('w-dl-packs') };
+  /* 🔴 A FUNCTION replacement, and it is not a style choice. `String.replace`
+     reads `$` in the REPLACEMENT as a substitution pattern, so a pasted value
+     containing one rewrites the prompt around it. Measured 2026-09-09 against
+     the real template: `$&` puts the placeholder BACK, so the reader who has
+     just typed their address is handed a prompt still telling them to paste it,
+     and `$'` duplicates the whole rest of the prompt. A function replacement is
+     immune, and it is the only correct fix; escaping the value would change
+     what the reader typed.
+
+     ⚠️ This also repairs the folder field, which has had the same bug since it
+     shipped and where a Windows path or a `$` in a folder name reaches it.
+
+     An empty value leaves the placeholder alone, on purpose: the field is
+     optional, and a reader who skips it must get today's prompt rather than a
+     sentence with a hole in it. */
+  function put(text, token, value) {
+    if (!value) { return text; }
+    return text.replace(token, function () { return value; });
+  }
+
   function frag(piece) {
     if (piece === 'consol') { return FRAGS.consol; }
+    if (piece === 'captions') { return FRAGS.captions; }
     if (piece === 'videos') {
       /* A course that already has its links wired is here for the downloads:
          the job must not tell Claude to collect what is already in. */
@@ -8123,9 +8683,10 @@ WIZARD_PAGE = """<!-- study-wizard -->
     }
     var which = piece + '_' + src(piece);
     var text = FRAGS[which];
-    if (src(piece) === 'local') {
-      var f = folders[piece].value.trim();
-      if (f) { text = text.replace(TOKENS[piece], f); }
+    if (src(piece) === 'local' && folders[piece]) {
+      text = put(text, TOKENS[piece], folders[piece].value.trim());
+    } else if (src(piece) === 'site' && sites[piece]) {
+      text = put(text, SITE_TOKENS[piece], sites[piece].value.trim());
     }
     return text;
   }
@@ -8135,12 +8696,14 @@ WIZARD_PAGE = """<!-- study-wizard -->
     ['lessons', 'readings'].forEach(function (p) {
       opts[p].hidden = !box[p].checked;
       folders[p].hidden = (src(p) !== 'local');
+      if (sites[p]) { sites[p].hidden = (src(p) !== 'site'); }
     });
     opts.videos.hidden = !box.videos.checked;
+    opts.captions.hidden = !box.captions.checked;
     opts.consol.hidden = !box.consol.checked;
     document.getElementById('o-dl').hidden = !dl.gate.checked;
     var jobs = [];
-    ['lessons', 'videos', 'consol', 'readings'].forEach(function (p) {
+    ['lessons', 'videos', 'captions', 'consol', 'readings'].forEach(function (p) {
       if (box[p].checked) { jobs.push(frag(p)); }
     });
     if (!jobs.length) {
@@ -8406,7 +8969,7 @@ WIZARD_PAGE = """<!-- study-wizard -->
 # The readings, as CONTENT the reader composes
 # --------------------------------------------------------------------------
 #
-# \U0001F534 EH, 2026-08-22: "I just want to make sure that the paper
+# 🔴 EH, 2026-08-22: "I just want to make sure that the paper
 # summaries have all the same highlighting, acting, and marking mechanisms that
 # we have for the rest of the lesson... essentially use the same reader wrapper
 # functionality." So the readings page stopped being its own page and became a
@@ -8776,6 +9339,40 @@ HUB_TREE_CSS = """<style>
   .hth, .hwh { display: flex; align-items: center; justify-content: space-between;
                gap: 12px; flex-wrap: wrap; }
   .hth .hrateset.side, .hwh .hrateset.side { margin-left: auto; }
+
+  /* Core ideas: a pill beside the name that opens IN PLACE, which is what EH
+     asked for ("a little core ideas pill to the right of the name, not to open
+     as a separate lesson page"). `<details>` so it needs no script and keeps
+     the keyboard behaviour the browser already gives it.
+
+     🔴 The ORDER is what puts the pill in the right place in both states, and
+     it is the whole trick: closed, it sits right after the name; open, the
+     panel takes a full line of the wrapping flex row so it reads underneath
+     rather than squeezing the ratings. Without this the panel would open into
+     whatever width was left beside the heading. */
+  .hwhn, .hthn { font: inherit; color: inherit; margin: 0; letter-spacing: inherit; }
+  .hci { order: 1; }
+  .hci[open] { order: 3; flex-basis: 100%; }
+  .hcip { cursor: pointer; display: inline-block; list-style: none;
+          font: 600 11px var(--text, sans-serif); letter-spacing: .04em;
+          text-transform: uppercase; color: var(--accent, #1C6D61);
+          border: 1px solid var(--accent, #1C6D61); border-radius: 999px;
+          padding: 2px 10px; white-space: nowrap; }
+  .hcip::-webkit-details-marker { display: none; }
+  .hcip:hover, .hci[open] .hcip { background: var(--accent, #1C6D61);
+                                  color: var(--surface, #fff); }
+  .hcib { font: 400 14px/1.55 var(--text, sans-serif); color: var(--ink, inherit);
+          text-transform: none; letter-spacing: normal;
+          background: var(--surface, transparent);
+          border: 1px solid var(--rule, #8884); border-left: 3px solid var(--accent, #1C6D61);
+          border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 8px 0 2px; }
+  .hcib > :first-child { margin-top: 0; }
+  .hcib > :last-child { margin-bottom: 0; }
+  .hcib p { margin: 0 0 8px; }
+  .hcib ul { margin: 0 0 8px; padding-left: 20px; }
+  .hcib li { margin: 0 0 4px; }
+  .hcib h2, .hcib h3, .hcib h4 { font: 600 14px var(--text, sans-serif);
+                                 margin: 10px 0 4px; }
 
   .htree[data-view="cards"] .htopic { display: grid; gap: 8px;
       grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
@@ -9447,17 +10044,41 @@ WIZ_VIDEOS_PACKS = ('Then mirror every lecture that is a narrated slide '
 WIZ_VIDEOS_FILES = ('Then download a copy of each real recording with '
                     'server/fetch_videos.py, so the videos also play from '
                     'this machine, offline, even if the course site closes.')
-# The consolidated-PDFs option (EH's design, 2026-08-23): weekly and whole-
-# course PDFs for slides and transcripts, built AFTER pdf_fix so they inherit
-# clean orientation and OCR. An option, never a default; re-askable later like
-# every piece, which is what "joins that checklist" means.
+# The consolidated PDFs (EH's design, 2026-08-23): weekly and whole-course PDFs
+# for slides and transcripts, built AFTER pdf_fix so they inherit clean
+# orientation and OCR. Re-askable later like every piece, which is what "joins
+# that checklist" means.
+# 🔴 They were "an option, never a default" until 2026-09-08. They are now
+# DEFAULT ON for a course that has none: see the reset in WIZARD_PAGE for the
+# ruling and the reason.
 WIZ_CONSOL = ('Build the consolidated PDFs: after the slides and transcripts '
               'are downloaded and have been through the pdf-fix step, run '
               'server/consolidate_pdfs.py on their folder with --module '
               '%(course)s. It writes one PDF per week and one for the whole '
-              'course, for the slide decks and for the transcripts, into the '
-              "course's consolidated folder, and verifies every page count. "
-              'Show me its output.')
+              'course, for the slide decks, the transcripts and the handouts, '
+              "into the course's consolidated folder, and verifies every page "
+              'count. Show me its output.')
+
+# 🔴 EH widened the captions entry 2026-09-08 from "a button in settings" to
+# "a checkbox in the wizard when you load a new course which should, in turn,
+# call the right scripts to be run". So this fragment NAMES the script and its
+# arguments rather than gesturing at "generate captions": a session told to
+# generate captions will invent a way, and the two pipelines underneath are
+# exactly what `caption_course.py` exists to hide.
+#
+# ⚠️ It says the cost too. The label says it in the wizard, and this says it in
+# the prompt, because the person who runs the prompt may not be the person who
+# ticked the box.
+WIZ_CAPTIONS = ('Build the captions for this course: run '
+                'server/caption_course.py --build %(course)s from the repository '
+                'root. It captions narrated slide packages and plain recordings '
+                'alike, skips any lecture that already has them, and writes '
+                "into the course's own captions folder. Do not write a caption "
+                'file by hand and do not summarise the transcript: the words '
+                'must be the lecturer\'s own, timed against the recording. It '
+                'fetches one lecture at a time and pauses between, so a whole '
+                'course runs for tens of minutes; show me its report when it '
+                'finishes.')
 
 WIZ_READINGS_LOCAL = ('Summarise the core readings I already have downloaded: '
                       'the folder is: <paste the readings folder here>. Run '
@@ -10862,7 +11483,7 @@ def compose_lesson(cfg, text, name="<lesson>", served_from=""):
         # layer, shell or player-controls change, and those never move the
         # build id. Named `build_id` still because the token and the shell's
         # variable are; the rename is filed as its own entry.
-        build_id=page_stamp(),
+        stamp=page_stamp(),
         nav=nav, state=state,
         # Read from the lockfile at compose time rather than cached in a global:
         # it is one small file read, and a version that could go stale in a
@@ -12003,9 +12624,17 @@ class Handler(BaseHTTPRequestHandler):
                 name = str(payload.get("name") or "").strip()
                 if not name:
                     raise ValueError("a course needs a name")
+                # ⚠️ Absent key and empty string are DIFFERENT here, so this
+                # cannot use `payload.get(...) or ""`: that would turn "the
+                # form did not send it" and "the reader cleared the box" into
+                # one value, which is exactly the distinction the field exists
+                # to keep. See `create_module`.
+                link = payload.get("project_link")
                 folder = create_module(root, str(payload.get("id") or "").strip(),
                                        name,
-                                       str(payload.get("class_name") or "").strip())
+                                       str(payload.get("class_name") or "").strip(),
+                                       project_link=(None if link is None
+                                                     else str(link).strip()))
                 _MODULE_CACHE.clear()      # the listing is cached by mtime
                 mid = folder.name
                 log(self.cfg, "course created %s" % mid)
@@ -12034,7 +12663,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not DOC_ID_RE.match(doc or ""):
                     raise ValueError("bad doc id")
                 out = write_cards(self.cfg, doc, payload)
-                log(self.cfg, "cards %s count=%d" % (doc, out["cards"]))
+                log(self.cfg, "cards %s count=%d adopted=%d"
+                    % (doc, out["cards"], out["adopted"]))
                 return self._json(out)
 
             if path == "/api/visit":
@@ -12053,7 +12683,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not DOC_ID_RE.match(doc or ""):
                     raise ValueError("bad doc id")
                 out = write_chats(self.cfg, doc, payload)
-                log(self.cfg, "chats %s count=%d" % (doc, out["chats"]))
+                log(self.cfg, "chats %s count=%d adopted=%d"
+                    % (doc, out["chats"], out.get("adopted", 0)))
                 return self._json(out)
 
             if path == "/api/followup":
@@ -12395,11 +13026,19 @@ class Handler(BaseHTTPRequestHandler):
             return None
         counts = lesson_packs.import_course_pack(self.cfg["notes_dir"], doc)
         _MODULE_CACHE.clear()
+        # ⚠️ Core ideas are named only when some arrived. The other three are
+        # always printed because a zero there is informative (the pack carried
+        # no glossary); a zero here would report on a feature most packs will
+        # not use for a while yet.
+        msg = ("In: %d glossary terms, %d readings, %d mistakes."
+               % (counts["glossary"], counts["readings"], counts["mistakes"]))
+        if counts.get("core_ideas"):
+            msg = msg[:-1] + (", core ideas for %d week%s or topic%s."
+                              % (counts["core_ideas"],
+                                 "" if counts["core_ideas"] == 1 else "s",
+                                 "" if counts["core_ideas"] == 1 else "s"))
         return self._json({"ok": True, "kind": "course-pack", "counts": counts,
-                           "message": "In: %d glossary terms, %d readings, %d "
-                                      "mistakes." % (counts["glossary"],
-                                                     counts["readings"],
-                                                     counts["mistakes"])})
+                           "message": msg})
 
     def _import_zip(self, data, name):
         """A shared course, one dragged file. Unpacked flat into a temp folder
@@ -12410,7 +13049,7 @@ class Handler(BaseHTTPRequestHandler):
         import zipfile
         import lesson_packs
         counts = {"lessons": 0, "skipped": 0, "links": 0,
-                  "glossary": 0, "readings": 0, "mistakes": 0}
+                  "glossary": 0, "readings": 0, "mistakes": 0, "core_ideas": 0}
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 tmpdir = Path(tmp)
@@ -12445,7 +13084,8 @@ class Handler(BaseHTTPRequestHandler):
                     if isinstance(doc, dict) and doc.get("course_pack"):
                         got = lesson_packs.import_course_pack(
                             self.cfg["notes_dir"], doc)
-                        for k in ("glossary", "readings", "mistakes"):
+                        for k in ("glossary", "readings", "mistakes",
+                                  "core_ideas"):
                             counts[k] += got[k]
         except zipfile.BadZipFile:
             return self._json({"ok": False,
@@ -12460,6 +13100,11 @@ class Handler(BaseHTTPRequestHandler):
             bits.append("%d glossary terms, %d readings, %d mistakes"
                         % (counts["glossary"], counts["readings"],
                            counts["mistakes"]))
+        if counts["core_ideas"]:
+            bits.append("core ideas for %d week%s or topic%s"
+                        % (counts["core_ideas"],
+                           "" if counts["core_ideas"] == 1 else "s",
+                           "" if counts["core_ideas"] == 1 else "s"))
         return self._json({"ok": True, "kind": "course-zip", "counts": counts,
                            "message": "; ".join(bits) + "."})
 
@@ -13166,8 +13811,16 @@ class Handler(BaseHTTPRequestHandler):
                          % (esc(wk_id, quote=True),
                             ratings_html(lstate.get(wk_id),
                                          lambda w: "Rate this week: %s" % w)))
-            rows.append('<section class="hweek"><h2 class="hwh">%s%s</h2>'
-                        % (whead, wrate))
+            wci = core_ideas_panel(mcfg, wk_id,
+                                   "Core ideas for %s" % re.sub(r"<[^>]+>", "", whead))
+            # 🔴 The heading is a WRAPPER now, not the <h2> itself: `<details>` is
+            # flow content and an <h2> takes phrasing, so the panel cannot live
+            # inside the heading element. `.hwh` keeps every rule it had (the
+            # flex row, the rule under it); `.hwhn` is the text that used to be
+            # its own content.
+            rows.append('<section class="hweek"><div class="hwh">'
+                        '<h2 class="hwhn">%s</h2>%s%s</div>'
+                        % (whead, wci, wrate))
             last_topic = None
             open_topic = False
             for doc in docs:
@@ -13192,9 +13845,14 @@ class Handler(BaseHTTPRequestHandler):
                     # A topic with no heading still gets its controls, or a
                     # course whose topics are unnamed could rate weeks and parts
                     # but not the level between them.
+                    tci = core_ideas_panel(
+                        mcfg, tp_id,
+                        "Core ideas for %s" % (re.sub(r"<[^>]+>", "", thead)
+                                               or (tp_id or "this topic")))
                     rows.append('<div class="htopic">'
-                                + ('<h3 class="hth">%s%s</h3>' % (thead, trate)
-                                   if (thead or trate) else ""))
+                                + ('<div class="hth"><h3 class="hthn">%s</h3>%s%s</div>'
+                                   % (thead, tci, trate)
+                                   if (thead or trate or tci) else ""))
                 title = show_title(m, doc)
                 bits = []
                 if m.get("part"):
@@ -13437,8 +14095,15 @@ class Handler(BaseHTTPRequestHandler):
             pass
         nconsol = len(list((folder / "consolidated").glob("*.pdf"))
                       if (folder / "consolidated").is_dir() else [])
+        # A lecture is captioned when its folder holds the .vtt the reader is
+        # served, which is the same file `lesson_json` looks for. Counted from
+        # the disk rather than from a sidecar's claim about itself.
+        ncaptions = len([d for d in (folder / "captions").iterdir()
+                         if (d / "video.vtt").is_file()]
+                        if (folder / "captions").is_dir() else [])
         status = {"lessons": nlessons, "videos": nvideos,
                   "readings": nreadings, "consolidated": nconsol,
+                  "captions": ncaptions,
                   "video_bytes": vid_bytes, "pack_bytes": pack_bytes}
 
         fill = {"course": code}
@@ -13453,6 +14118,7 @@ class Handler(BaseHTTPRequestHandler):
             "readings_local": WIZ_READINGS_LOCAL % fill,
             "readings_site": WIZ_READINGS_SITE % fill,
             "consol": WIZ_CONSOL % fill,
+            "captions": WIZ_CAPTIONS % fill,
         }
 
         page = WIZARD_PAGE % {

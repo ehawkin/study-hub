@@ -63,7 +63,8 @@ knowing it came from a taught course, and without meeting anyone.
 - **Name a lecturer, presenter or interviewer.** No "Dr X explains", no "in
   conversation with", no attributing a quote to a person.
 - **Refer to the delivery format.** No "the lecture", "this video", "the deck",
-  "the slides", "the transcript", "slide 17", "the summary slide".
+  "the slides", "the transcript", "slide 17", "the summary slide", "no audio on
+  this slide".
 - **Narrate the source's behaviour.** No "the deck never says this plainly", "the
   slides run these out of order", "a long time is spent on this".
 - **Reproduce interview scaffolding.** A question asked by a second speaker
@@ -397,6 +398,15 @@ alongside it.
 main ones is a superset of the other: a paper's corrigendum can be recorded by
 one and entirely absent from the other, and both directions occur. Checking a
 single index and concluding "no correction" is not a check.
+
+🔴 **And ask each index the right question.** On Crossref the field is
+`updated-by` and never `update-to`, and the two point in opposite directions:
+`update-to` sits on the CORRECTION and points back at the paper it corrects,
+while `updated-by` sits on the PAPER and points forward at its correction. That
+second one is the direction you need. **Reading the wrong field returns clean for
+every corrected paper, silently**, which then defeats the two-index rule above as
+well: a real pass over fourteen papers reported them all clean, and re-running it
+correctly found a correction the other index did not carry either.
 
 🔴 **A check that fails must fail for the RIGHT reason, and a wrong check is
 fixed rather than suppressed.** When the verifier fires on something you are

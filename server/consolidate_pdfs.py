@@ -12,8 +12,14 @@ inherits. The wizard's prompt says this in order; if you are here another way,
 fix the folder first.
 
 Input is a folder of per-part PDFs named the way the download-keats skill
-files them (`<DOC>-slides.pdf`, `<DOC>-transcript.pdf`, week read from the
-`W<n>` in the DOC). Output goes to `courses/<CODE>/consolidated/`. The outputs
+actually files them, which is `<DOC> - <Kind> (<original name>).pdf`, as in
+`W2-T3-P1 - Slides (7XYZ_W2_T3_P1_Accessible_Slides).pdf`. The week is read from
+the `W<n>` in the DOC. ⚠️ **This paragraph described a convention nobody uses
+(`<DOC>-slides.pdf`) until 2026-09-08. The CODE was always right**: it strips the
+trailing parenthetical and classifies on the standard part, so a transcript whose
+original name mentions slides is still a transcript. Only the description was
+wrong, which is the kind of wrong that sends somebody renaming files that were
+already correct. Output goes to `courses/<CODE>/consolidated/`. The outputs
 are DERIVED: re-running regenerates them, and nothing else may edit them, so
 they are overwritten without ceremony (the parts are the originals).
 
@@ -82,23 +88,40 @@ def merge(parts, out):
                                           else "s", got)
 
 
+# 🔴 HANDOUT IS FIRST, and the order is the whole guard. A handout's original
+# filename routinely contains the word "slides", so a file named
+# `W1-T1-P1 - Handout (W1_T1 Slides Handout).pdf` classifies as a SLIDE the
+# moment anything consults the full filename before deciding it is a handout,
+# and it would then be merged into the week's slide deck with nothing saying so.
+# Added 2026-09-09 with the third kind, because until then a handout matched
+# nothing and was skipped, which was safe by accident rather than by design.
+KIND_WORDS = (("handout", "handouts"), ("slide", "slides"),
+              ("transcript", "transcripts"))
+KINDS = {kind for _, kind in KIND_WORDS}
+
+
+def kind_of(stem, filename):
+    """Which of the three kinds this file is, or None.
+
+    The standard part decides; the original name in the trailing parenthetical
+    is only consulted when the standard part says nothing.
+    `W1-T1-P1 - Transcript (Lecture 1 slides talk-through).pdf` is a transcript,
+    whatever its old name mentioned.
+    """
+    head = re.sub(r"\s*\([^()]*\)\s*$", "", stem).lower()
+    for name in (head, filename.lower()):
+        for word, kind in KIND_WORDS:
+            if word in name:
+                return kind
+    return None
+
+
 def collect(folder):
-    """{kind: {week or None: [paths]}} for the two kinds this consolidates."""
-    kinds = {"slides": {}, "transcripts": {}}
+    """{kind: {week or None: [paths]}} for the kinds this consolidates."""
+    kinds = {"slides": {}, "transcripts": {}, "handouts": {}}
     for p in sorted(Path(folder).glob("*.pdf"), key=lambda q: natural(q.name)):
-        # The standard part decides the kind; the original name in the trailing
-        # parenthetical is only consulted when the standard part says nothing.
-        # "W1-T1-P1 - Transcript (Lecture 1 slides talk-through).pdf" is a
-        # transcript, whatever its old name mentioned.
-        head = re.sub(r"\s*\([^()]*\)\s*$", "", p.stem).lower()
-        for name in (head, p.name.lower()):
-            if "slide" in name:
-                kind = "slides"
-                break
-            if "transcript" in name:
-                kind = "transcripts"
-                break
-        else:
+        kind = kind_of(p.stem, p.name)
+        if kind is None:
             continue
         kinds[kind].setdefault(week_of(p.stem), []).append(p)
     return kinds
@@ -117,6 +140,12 @@ def main():
                                   "consolidated/)")
     ap.add_argument("--config", default=str(S.CONFIG_PATH))
     ap.add_argument("--dry-run", action="store_true")
+    # 🟢 Added 2026-09-09 for the transcript repair, which had to rebuild the
+    # transcripts and handouts while leaving 291MB of slide decks alone: their
+    # inputs had not changed, so re-merging them would have been churn with a
+    # nonzero chance of breaking something that was already right.
+    ap.add_argument("--kind", action="append", choices=sorted(KINDS),
+                    help="only this kind; repeatable. Default: all of them.")
     args = ap.parse_args()
 
     cfg = S.load_config(Path(args.config).expanduser())
@@ -132,12 +161,17 @@ def main():
         else mods[args.module] / "consolidated"
 
     kinds = collect(src)
+    if args.kind:
+        kinds = {k: v for k, v in kinds.items() if k in set(args.kind)}
     total = sum(len(v) for byweek in kinds.values() for v in byweek.values())
     if not total:
-        raise SystemExit("nothing to consolidate: no *-slides.pdf or "
-                         "*transcript*.pdf in %s" % src)
+        raise SystemExit("nothing to consolidate in %s: no PDF here has "
+                         "'Slides', 'Transcript' or 'Handout' in its name, "
+                         "which is the form download-keats files them under "
+                         "(`<DOC> - Slides (<original>).pdf`)" % src)
 
-    label = {"slides": "All Slides", "transcripts": "All Transcripts"}
+    label = {"slides": "All Slides", "transcripts": "All Transcripts",
+             "handouts": "All Handouts"}
     jobs = []
     for kind, byweek in kinds.items():
         weekless = byweek.pop(None, [])

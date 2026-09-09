@@ -240,6 +240,11 @@ def export(cfg, doc_ids, out_dir, with_links=True, with_drive=False, quiet=False
 
 COURSE_PACK_NAME = "%s.course.json"
 
+CORE_IDEAS_SUFFIX = "-core-ideas.md"
+# The week/topic ids core ideas are keyed on, matched HERE rather than trusted,
+# because an imported pack is a stranger's text and these become filenames.
+CORE_IDEAS_ID = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,15}(?:-[A-Za-z0-9]{1,16}){0,5}\Z")
+
 
 def course_sidecars(cfg, folder):
     """The course's own writing beyond the lessons: glossary, readings
@@ -281,6 +286,29 @@ def course_sidecars(cfg, folder):
             n += 1
     except (OSError, ValueError):
         pass
+    # 🔴 Core ideas ride the COURSE pack, not a lesson pack, and the reason is
+    # measured: `make_pack` returns one file per LESSON, so a document that
+    # belongs to a week has nowhere to sit in that shape. This pack already
+    # carries the course-level writing that is ours (glossary, readings,
+    # mistakes) and merges additively, which is exactly what these need.
+    #
+    # ⚠️ Note the asymmetry with OUTLINES, which share the file convention and
+    # are deliberately NOT exported by anything: an outline is a working
+    # document, a plan for writing the lesson. Core ideas are reader-facing
+    # content. Taking the convention without re-asking the export question
+    # would have got this wrong in the quiet direction.
+    ideas = {}
+    for f in sorted(folder.glob("*" + CORE_IDEAS_SUFFIX)):
+        unit = f.name[:-len(CORE_IDEAS_SUFFIX)]
+        try:
+            text = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if unit and CORE_IDEAS_ID.match(unit) and text.strip():
+            ideas[unit] = text
+    if ideas:
+        out["core_ideas"] = ideas
+        n += 1
     return out if n else None
 
 
@@ -474,7 +502,7 @@ def export_course(cfg, out_dir, with_links=True, with_drive=False, quiet=True,
     written = export(cfg, docs, out_dir, with_links=with_links,
                      with_drive=with_drive, quiet=quiet)
     report = {"lessons": len(written), "glossary": 0, "readings": 0,
-              "mistakes": 0,
+              "mistakes": 0, "core_ideas": 0,
               # What the recipient will NOT be able to open, so the page can say so
               # rather than leaving them to discover an empty Materials pane.
               "drive_withheld": count_drive(cfg, docs) if not with_drive else 0,
@@ -501,6 +529,7 @@ def export_course(cfg, out_dir, with_links=True, with_drive=False, quiet=True,
     report["glossary"] = len(pack.get("glossary") or {})
     report["readings"] = len((pack.get("readings") or {}).get("readings") or {})
     report["mistakes"] = len((pack.get("mistakes") or {}).get("mistakes") or {})
+    report["core_ideas"] = len(pack.get("core_ideas") or {})
     report["contents"] = contents
 
     zip_path = shutil.make_archive(str(out_dir), "zip",
@@ -523,7 +552,7 @@ def import_course_pack(folder, data, quiet=True):
     🔴 Additive on the glossary, same philosophy as merge_links: a term the
     recipient already defined keeps THEIR definition. Readings and mistakes go
     through their own mergers, which already protect hand-edited entries."""
-    counts = {"glossary": 0, "readings": 0, "mistakes": 0}
+    counts = {"glossary": 0, "readings": 0, "mistakes": 0, "core_ideas": 0}
     g = data.get("glossary")
     if isinstance(g, dict) and g:
         path = folder / "glossary.json"
@@ -566,6 +595,26 @@ def import_course_pack(folder, data, quiet=True):
             counts["mistakes"] = got.get("added", 0) + got.get("replaced", 0)
         except (M.Problem, ValueError):
             pass
+    ideas = data.get("core_ideas")
+    if isinstance(ideas, dict):
+        for unit, text in sorted(ideas.items()):
+            # 🔴 Additive, the same philosophy as the glossary above: a unit the
+            # recipient has already written keeps THEIR words, and nothing here
+            # overwrites or backs up, because it never replaces.
+            # 🔴 And the id is matched before it becomes a filename: `..` or a
+            # slash in a stranger's pack would otherwise write outside the
+            # course folder.
+            if (not isinstance(unit, str) or not isinstance(text, str)
+                    or not CORE_IDEAS_ID.match(unit) or not text.strip()):
+                continue
+            path = folder / (unit + CORE_IDEAS_SUFFIX)
+            if path.exists():
+                continue
+            try:
+                path.write_text(text, encoding="utf-8")
+            except OSError:
+                continue
+            counts["core_ideas"] += 1
     return counts
 
 

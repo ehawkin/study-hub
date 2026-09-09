@@ -28,6 +28,24 @@ no materials ship in this kit and why nothing here needs an account of ours.
    enrolment. Lessons written from them may be shared (that is what
    `lesson_packs.py` is for). The downloaded folder is not.
 
+## The shape you are reading off the page
+
+Most courses nest like this, and it is worth holding in mind before you look at
+anything:
+
+**course → week → topic → part.**
+
+🔴 **The PART is the unit that matters.** It is what a student sits down and
+watches, and it is what one lesson corresponds to. Weeks and topics are how the
+course files its parts; the part is the thing with a video, a deck and a
+transcript.
+
+⚠️ **That is the COMMON shape and not the only one, and this frame must never be
+used to force a course into it.** A flat lecture series has no weeks and does not
+need any; a seminar course may have no parts. **Read the shape off the page.** The
+section "When the course is not shaped like weeks" below is the better half of
+this instruction, and it wins wherever they disagree.
+
 ## Before touching the browser
 
 Ask for **the module's main KEATS page URL**. That is the only thing you need
@@ -48,15 +66,65 @@ are working in.
 
 1. **Navigate to the module page.** If it redirects to a login, tell them, and
    wait until they say they are in. Do not poll silently for minutes.
-2. **Read the page structure before downloading anything.** Take the section
+2. 🔴 **ASK THE PACKAGE FOR ITS OWN CONTENTS BEFORE YOU SCRAPE THE SCREEN.**
+   A published course package usually knows what it contains, and asking it
+   returns structured data with no OCR anywhere in the chain. For a Rise
+   package the call is:
+
+   ```js
+   await window.__fetchCourse()
+   ```
+
+   Read the answer, and scrape only what it does not tell you. **Screen-scraping
+   a thing that has an index is how a wrong count gets in**, and every step you
+   take through a picture of the page is a step that can be misread.
+3. **Read the page structure before downloading anything.** Take the section
    headings and, under each, the activities. Build the inventory first and show
    it to them. A wrong inventory downloaded is a wrong inventory they have to
    sort out by hand.
-3. **Classify each activity** by what it is: a lecture video (Kaltura, usually a
+   ⚠️ **Moodle's grid format renders ONE SECTION TILE AT A TIME**, so what is on
+   screen is never the whole course. The section ids are in the course-index
+   drawer; take them from there and visit each section, rather than believing the
+   tile in front of you.
+4. 🔴🔴 **ASSERT THE COUNT, AND RETRY UNTIL IT AGREES.** Whenever you scrape
+   anything, you have two independent statements of how many there should be:
+   what the page or the package says, and what you actually collected. **Compare
+   them and refuse to proceed while they differ.**
+   **The worked case, and it is why this is a hard rule.** Rise leaves the
+   previous lesson mounted while the next one loads, so asking for one part's
+   slides straight after another returns BOTH: 21 images for an 11-slide part.
+   **Every file was valid, every count was plausible, and nothing anywhere
+   disagreed.** The assertion caught it on the first part scraped and all 34 then
+   passed.
+   🟢 **The general rule is the valuable part: when two independent sources
+   describe the same quantity, make the tool compare them and refuse to
+   proceed.**
+   🔴🔴 **AND THE HALF A COUNT CANNOT REACH, measured on the same course.** The
+   assertion above catches the previous lesson ADDING items: 21 for 11, a wrong
+   count. **It is structurally blind to the previous lesson REPLACING one**, where
+   the count is right and the words are wrong. **Four slides of that course were
+   narrated with a different lecture's words, every one at the same slide index in
+   both parts**, and one reached a written lesson before a person reading it
+   noticed. **Every count agreed the whole time.**
+   🟢 **So after collecting a course, run the narration check:**
+   `python3 server/verify_course.py <CODE>` reports the row **"narration unique to
+   its part"**. It compares every sentence of eight or more words across parts and
+   names any that appear in two, with the slide index. ⚠️ **A course whose
+   transcripts are one PDF per part reads `UNCHECKED, not clean`, which is the
+   honest answer rather than a pass**: there is no per-slide form to compare, and
+   the mechanism needs a per-slide fetch loop to exist at all.
+   ⚠️ **The transferable shape: when a stale source can either ADD or REPLACE,
+   a count answers only the first question. Compare the CONTENT for the second.**
+5. 🔴 **READ THE `<img src>` FILENAME, NEVER THE `alt` TEXT.** Icons and labels
+   drift apart: on one real course the `alt` attributes were offset from the
+   icons they described, and a pass that read them got the right answer by the
+   wrong method. **That is worse than a wrong answer**, because it passes and
+   teaches you to trust the method.
+6. **Classify each activity** by what it is: a lecture video (Kaltura, usually a
    `kalvidres` link), a slide deck (PDF or PPTX), a transcript, a reading, or
    something else. Keep the ones they want; ask when a whole class of thing is
    ambiguous rather than guessing 40 times.
-4. **Download in small batches** and check as you go. A batch that silently
+7. **Download in small batches** and check as you go. A batch that silently
    returned HTML login pages instead of PDFs is the failure to catch early.
    🔴 Downloading a file is an explicit-permission action: say what is coming,
    how many and roughly how big, and get a yes before the first batch.
@@ -160,6 +228,61 @@ is also what the reader's Materials pane runs on:
 one got. That is the confirmation step, and it is where they catch the lecture
 that came down under the wrong number.
 
+## When the course publishes no lecture files at all
+
+🔴 **Some courses hand you a website and nothing else.** No slide PDFs, no
+transcript files: just a package you page through in a browser, with a single
+combined handout somewhere. **When that happens, scraping stops being a tidy-up
+at the end and becomes a PREREQUISITE for writing anything at all.** Find that
+out before you promise anybody a download, because the job is a different job.
+
+**What to build instead, and this is exactly what was done for a real course of
+this shape:**
+
+1. 🔴 **A file named `Transcript` holds the words that were SPOKEN and nothing
+   else.** Extract the narration from the package and render THAT. **Do not save
+   the combined handout under that name**, however convenient it is: a handout
+   interleaves each slide with its narration, so a file labelled transcript then
+   contains the slide text too. **Measured on a real course: 2,557 words in the
+   file named `Transcript` against 1,486 words of actual narration, so about 42%
+   of it was slide text**, and the whole-course consolidation inherited it, which
+   is how a reader ends up with "transcripts" that are the slides again.
+
+   ```
+   W2-T1-P1 - Transcript (built from course narration).pdf
+   ```
+
+2. 🟢 **Keep the handout, under its own name.** It is a real document and the
+   only one that shows a slide beside what was said about it, so it is worth
+   having. It is simply not a transcript.
+
+   ```
+   W2-T1-P1 - Handout (<original filename>).pdf
+   ```
+
+   ⚠️ **And the handout is NOT "the only prose the course published"**, which is
+   what this section used to say. The narration is prose, it is extracted in the
+   same run, and it is the better source for writing a lesson: it is what was
+   said, rather than what was said plus what was on the slide.
+
+3. **Build a per-part `Slides` PDF from the package's slide images**, one slide
+   per page, in order.
+4. 🔴 **Put the fact that you built it in the brackets**, in the same
+   parenthetical the standard naming already uses:
+
+   ```
+   W2-T1-P1 - Slides (built from course slide images).pdf
+   ```
+
+   ⚠️ **This matters more than it looks.** The parenthetical is normally the
+   original filename, so a reader who sees one assumes the course published that
+   file. **Saying where it came from is the difference between a document and a
+   document somebody will later mistake for evidence.**
+
+⚠️ The image-to-PDF step is not a tool in this kit yet, deliberately: it has been
+needed once, and one instance is not a pattern. Build it for the course in front
+of you and say that you did.
+
 ## When the course is not shaped like weeks
 
 Some modules are a flat list of lectures, some are units, some are seminars. The
@@ -184,19 +307,27 @@ born-digital text is left alone). Originals are kept in `backups/` beside the
 files. `--check` first if you want to see what it would do. Report what it
 rotated and what it re-read, from its own output.
 
-## Consolidated PDFs, if they asked for them
+## Consolidated PDFs, which are standard rather than an extra
 
-If the job includes the consolidated-PDFs option (the wizard's checkbox, or
-they ask), build them AFTER pdf-fix, never before, so they inherit the clean
-orientation and OCR:
+🟢 **Build these by default.** They are turned OFF rather than on, and the
+reason is the purpose of the whole onboarding step: a student who onboards a
+course should end up with the readable, printable documents without having to
+know that such a thing exists to ask for. A week's slides as one document
+instead of nine tabs is not an advanced option.
+
+Build them AFTER pdf-fix, never before, so they inherit the clean orientation
+and OCR:
 
 ```
 python3 server/consolidate_pdfs.py <the folder of PDFs> --module <CODE>
 ```
 
-It writes one PDF per week and one for the whole course, for the slide decks
-and for the transcripts, into `courses/<CODE>/consolidated/`, and verifies
-every output's page count against the sum of its parts. Files whose names
+It writes one PDF per week and one for the whole course, for the slide decks,
+the transcripts and the handouts, into `courses/<CODE>/consolidated/`, and
+verifies every output's page count against the sum of its parts. 🟢 **Handouts
+are a kind because a course of the shape above publishes one**, and it is a
+document worth having whole; `--kind transcripts --kind handouts` limits a run
+when only some of the inputs have changed. Files whose names
 carry no `W<n>` week join only the whole-course PDF, and it says so. Report
 its output as printed, failures included.
 
@@ -214,11 +345,15 @@ list, say so in the finishing count rather than silently skipping the check.
 
 Not in the kit, deliberately, and worth saying when someone asks:
 
-- **Consolidated PDFs** per week or per course.
+- **Building a PDF from a package's slide images**, for a course that publishes
+  no slide files at all. The recipe is above; the tool is not written, because it
+  has been needed once and one instance is not a pattern.
 
-If they ask, say it is a known want that is not built, and offer the manual
-route rather than half-building it now. (Rotation and OCR used to be on this
-list; since 2026-08-22 they are `server/pdf_fix.py`, the section above. It
+(Two things used to be on this list and are not any more, which is why the list
+is worth re-reading rather than trusting. Rotation and OCR became
+`server/pdf_fix.py` on 2026-08-22, and **consolidated PDFs became
+`server/consolidate_pdfs.py`, are in the kit, and are now built by default**:
+this list said the opposite of the section two above it until 2026-09-08. It
 needs `ocrmypdf` and `tesseract`; on a Mac, `brew install ocrmypdf` brings
 both, and the script says plainly when they are missing rather than failing
 strangely.)
@@ -231,6 +366,14 @@ strangely.)
 2. Tell them the folder is theirs alone and must not be passed on.
 3. **Say how many lectures will play and how many only open out**, which is the
    `entry` id and nothing else. "38 of 41 will play" is a fact they can act on.
+4. 🟢 **Report how many citations each PART carries**, counted from the text you
+   downloaded, as a per-part line or a range with the outliers named.
+   ⚠️ **Per part, not per course and not per week**, and that is the whole point:
+   the writer of one lesson needs to know whether the part in front of them cites
+   three papers or thirty. **Without it, whoever writes first generalises from
+   their own week and every later writer inherits the guess.** A part with none is
+   worth naming out loud, because it usually means the citations are in an image
+   the text layer never saw.
 4. Point at **write-lesson** as the next step, and say that a course with
    materials but no lessons still shows up on the home page, with nothing to
    read yet.

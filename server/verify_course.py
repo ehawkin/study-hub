@@ -68,6 +68,15 @@ try:
 except ImportError:                # pragma: no cover - readings.py ships with it
     _readings = None
 
+# 🔴 GUARDED FOR THE SAME CHECKED REASON as `regionpack` below: an unguarded
+# import raises inside the kit if the manifest does not ship this file, and takes
+# the WHOLE report down rather than one row. Absent is also the honest answer -
+# the row then reads "unchecked", which is what it is.
+try:
+    import narration_xpart         # noqa: E402
+except ImportError:                # pragma: no cover - present in this repo
+    narration_xpart = None
+
 # 🔴 OPTIONAL FOR A REASON THAT IS CHECKED, NOT ASSUMED: `build_kit.py`'s
 # manifest ships `verify_course.py` and does NOT ship `regionpack.py` or the
 # pack data. An unguarded import here would raise inside the kit and take the
@@ -288,6 +297,52 @@ def cap_outlines(ctx):
     return Row("lesson outlines", len(docs), served, note)
 
 
+def cap_narration_unique(ctx):
+    """No part's narration carries another part's words.
+
+    🔴 **THE DEFECT THIS EXISTS FOR.** Four of `7PAYCAMD`'s 450 narrated slides
+    carried narration belonging to a different part, **every one at the SAME
+    slide index in both parts, four for four**. That is a mechanism rather than a
+    coincidence: the fetch keyed on slide index and let a previous part's
+    narration survive, the same class as Rise leaving the previous lesson
+    mounted. It reached a shipped lesson before a person reading the course
+    noticed.
+
+    ⚠️ **`wanted` is the parts this can READ, not the parts the course has.** A
+    course whose transcripts are per-part PDFs has no per-slide form to compare,
+    so it reports zero and the note says UNCHECKED. 🔴 **Never "clean": the
+    absence of a reading and a clean reading are the same silence from outside**,
+    and this check exists because that silence lasted through three courses.
+    """
+    if narration_xpart is None:
+        return Row("narration unique to its part", 0, 0,
+                   "narration_xpart.py is not installed here, so this is unchecked")
+    source = S.local_materials_dir(ctx["cfg"]) / "source"
+    units = narration_xpart.slide_units(str(source))
+    if not units:
+        return Row("narration unique to its part", 0, 0,
+                   "UNCHECKED, not clean: this course has no per-slide "
+                   "transcripts under %s" % source)
+    found = narration_xpart.scan(units)
+    parts = found["parts"]
+    dirty = sorted({p for row in found["duplicates"] for p in row["parts"]})
+    note = ""
+    if found["duplicates"]:
+        pairs = sorted({(tuple(r["parts"]), r["occurrences"][0][1])
+                        for r in found["duplicates"]})
+        same = sum(1 for r in found["duplicates"] if r["same_slide"])
+        note = ("%d duplicated sentence(s) over %d slide-pair(s): %s"
+                % (len(found["duplicates"]), len(pairs),
+                   "; ".join("%s=%s @%s" % (a, b, where)
+                             for (a, b), where in pairs[:4])))
+        if same == len(found["duplicates"]):
+            # 🔴 The single most useful fact for whoever owns the ingest, and it
+            # is what turns a duplicate into a diagnosis.
+            note += " - EVERY ONE at the same slide index in both parts"
+    return Row("narration unique to its part", len(parts),
+               len(parts) - len(dirty), note)
+
+
 def cap_readings(ctx):
     """A recorded reading has a PDF filed against it, so the link opens
     something rather than naming a paper the reader has to go and find."""
@@ -316,15 +371,41 @@ def cap_identity(ctx):
     other alarm on it, so it is one here.
     """
     facts = S.module_facts_of(ctx["folder"])
-    served = sum(1 for f in IDENTITY_FIELDS if str(facts.get(f) or "").strip())
+
+    def declared(f):
+        """🟢 EMPTY IS AN ANSWER for `project_link`, from 2026-09-09.
+
+        EH's ask, after setting the field by hand on a third course: setup now
+        offers it, and *"a course whose owner does not use the vault should be
+        able to leave it empty deliberately, and the gate should then read that
+        as declared-absent rather than half-populated."*
+
+        🔴 So the test is whether the KEY IS PRESENT, not whether it is truthy.
+        Absent means nobody was ever asked; present and empty means somebody
+        answered "no vault". Nagging about the second teaches a reader to
+        ignore this row, and this row is the only alarm on the identity leak
+        that `b058c03` closed.
+
+        ⚠️ The other two fields are NOT optional and keep the old rule: a blank
+        `class_name` or `store_prefix` is a gap however it got there."""
+        if f == "project_link":
+            return f in facts
+        return bool(str(facts.get(f) or "").strip())
+
+    served = sum(1 for f in IDENTITY_FIELDS if declared(f))
     note = ""
     if served < len(IDENTITY_FIELDS):
-        missing = [f for f in IDENTITY_FIELDS if not str(facts.get(f) or "").strip()]
+        missing = [f for f in IDENTITY_FIELDS if not declared(f)]
         note = "not declared: " + ", ".join(missing)
+    elif "project_link" in facts and not str(facts["project_link"]).strip():
+        # 🟢 A positive result rather than silence: "declared empty" and "never
+        # asked" now look the same in the count, so the row says which it is.
+        note = "project_link declared empty: this course does not go to a vault"
     return Row("per-course identity", len(IDENTITY_FIELDS), served, note)
 
 
 CAPABILITIES = (cap_region_pictures, cap_local_materials, cap_packages,
+                cap_narration_unique,
                 cap_outlines, cap_readings, cap_identity)
 
 
