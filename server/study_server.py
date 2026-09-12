@@ -23,8 +23,8 @@ Security posture, deliberately narrow because /api/explain runs a subprocess:
   - the CLI is invoked with an argv list, never a shell, with a fixed model
     from config and a hard timeout.
 
-Config lives outside the repo and outside Dropbox (it is machine state, and
-one day may hold a key): ~/.kcl-study/config.json, mode 0600.
+Config lives outside the repo and outside any synced folder (it is machine
+state, and one day may hold a key): ~/.kcl-study/config.json, mode 0600.
 
     python3 server/study_server.py --init     # scaffold the config
     python3 server/study_server.py            # run it
@@ -298,10 +298,17 @@ VAULT_MARKER = ".obsidian"
 
 # Tried by name before the marker scan below. A shortcut, never a requirement:
 # every name here is also found by the scan, and this list only decides which
-# vault wins on a machine that has more than one. "The Box" is in it because
-# this project was built inside one and its author's config predates the scan,
-# so keeping it guarantees his machine resolves exactly as it always has.
-PREFERRED_VAULT_NAMES = ("The Box",)
+# vault wins on a machine that has more than one.
+#
+# 🔴 **EMPTY, AND DELIBERATELY SO SINCE 2026-09-11.** It used to name the
+# author's own vault, which is a personal fact about one machine shipping inside
+# software handed to other people (EH: *"Let's get rid of that"*). **Emptying it
+# changes nothing that was measured**: the marker scan below finds the same vault
+# on his machine, because a name here is a tie-break and never a requirement, and
+# `find_vault_courses()` returned the identical path with the list full and with
+# it empty. ⚠️ **The mechanism stays** so a machine with several vaults can
+# express a preference; what is gone is a default nobody else should inherit.
+PREFERRED_VAULT_NAMES = ()
 
 
 def find_vault_courses():
@@ -311,14 +318,14 @@ def find_vault_courses():
     guess and the server refuses to write until the path is real, rather than
     growing a convincing empty copy of somebody's notes beside it.
 
-    🔴 This used to look ONLY for a folder called "The Box", which is the name
-    of one person's vault. It therefore found nothing on any other machine, and
-    since `--init` turns publishing on only when a vault is found, a recipient
-    with a perfectly good vault called something else got the feature switched
-    off with no way to discover why (plan 02 §9).
+    🔴 This used to look ONLY for one hardcoded folder name, the author's own
+    vault. It therefore found nothing on any other machine, and since `--init`
+    turns publishing on only when a vault is found, a recipient with a perfectly
+    good vault called something else got the feature switched off with no way to
+    discover why (plan 02 §9).
 
-    So: the named places first, which keeps his machines resolving exactly as
-    they did, then any real Obsidian vault in the usual roots. `.obsidian` is
+    So: any named preference first (`PREFERRED_VAULT_NAMES`, empty by default
+    since 2026-09-11), then any real Obsidian vault in the usual roots. `.obsidian` is
     the marker Obsidian itself writes, so this recognises a vault rather than
     guessing from a name."""
     home = Path.home()
@@ -401,7 +408,7 @@ DEFAULT_CONFIG = {
     # 🔴 Off is the right default for anyone who is not EH (plan §10d item 1):
     # a recipient has no Obsidian vault, and a reader that boots with a vault
     # badge and a "vault not found" warning looks broken on arrival. His config
-    # has it on; --init turns it on only when The Box is actually found.
+    # has it on; --init turns it on only when a vault is actually found.
     "vault_enabled": True,
     "vault_courses": "",          # filled in by --init, per machine
     "class_name": "Affective Disorders",
@@ -449,13 +456,111 @@ ANY_START = re.compile(r"<!--\s*study:([A-Za-z0-9\-]+):start\s*-->")
 # `L07`, `wk2-seminar-1` or `unit3-2`.
 DOC_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]{0,15}(?:-[A-Za-z0-9]{1,16}){0,5}\Z")
 
+
+def captioned_docs(folder):
+    """How many LECTURES in this course carry captions the reader is served.
+
+    🟢 **THE QUESTION THIS NUMBER ANSWERS, said here because a bare count that
+    does not name its own question is how this went wrong twice in one day, in
+    opposite directions:** it is **how many lectures carry SOME captions**, not
+    how many are finished. **A lecture with 12 of its 20 clips captioned is
+    counted**, and the caption build still has work to do on it. The per-lecture
+    answer (done, part-way, blocked) is what the Captions section in Settings
+    prints, from `caption_course.lectures()`, which counts clips; this number is
+    a decision aid on a page that must not shell out to anything.
+
+    A lecture is captioned when a directory named after it holds **any `.vtt`
+    the reader could ask for**. **All three halves are required** and each one
+    of them has been the missing half of a live defect.
+
+    🔴 **DEFECT ONE, THE NAME, found by `study-hub-qa` 2026-09-09.** The count
+    used to be "every directory under `captions/` holding a `video.vtt`", never
+    looking at the name, so it swept up **our own mandated timestamped
+    backups**: `W4-T2-P1.20260904-163101.bak` and its siblings. **One course
+    read 21 when 9 lectures were captioned**, because six were counted three
+    times each.
+
+    🔴 **DEFECT TWO, THE SHAPE, found by `study-hub-qa` the same evening, and it
+    was four times bigger than the one above.** Fixing the name left
+    `(d / "video.vtt").is_file()` in place, and **`video.vtt` is the MINORITY
+    shape this system produces.** A narrated package is captioned **per clip**:
+    `captions.py` names each file after the mp3 it was aligned from and the
+    player rebuilds that name (`player-controls.html`,
+    `name.replace(/\\.mp3$/i, ".vtt")`), so a lecture holding `sound1.vtt`
+    through `sound20.vtt` counted as uncaptioned. **Measured on the disk: 37
+    captioned lectures read as 9, and a course with 8 read as 0.** ⚠️ **QA
+    walked one of them and found the tracks attached and 20 cues loaded, so the
+    count was wrong about work that is live in front of the reader.**
+
+    ⚠️ **It is not cosmetic, and the reason is what makes it worth a docstring.**
+    The number exists to stop somebody ticking a box that quietly costs forty
+    minutes, or skipping one they need. **Reading 21 of 38 when the truth is 9
+    invites leaving it unticked and never getting the other 29; reading 9 when
+    the truth is 37 invites re-running the job over lectures that already have
+    captions.** **A wrong number in a decision aid is worse than no number,
+    because it is acted on.**
+
+    🟢 `DOC_ID_RE` is the right test rather than a `.bak` filter, and the
+    argument is the one this project keeps having: **the reader serves captions
+    BY LESSON ID**, so a directory whose name is not a lesson id can never be
+    served whatever it holds. A list of extensions to exclude would be the same
+    bug with a longer table. **The same call already appears at the stray-module
+    sweep, so this is the file's own precedent rather than a new idea.**
+
+    🟢 **And ANY `.vtt` rather than a list of the two filenames we see today, for
+    the same reason.** The player asks for `video.vtt` for a plain recording and
+    `<clip>.vtt` for a package, where the clip's name comes from the package
+    (`name.replace(/\\.mp3$/i, ".vtt")`), **so the set of names is not ours to
+    enumerate.** On the disk today every one of the 463 caption files is
+    `video.vtt` or `soundN.vtt`, and **a table of those two would be defect two
+    waiting for a third shape.**
+
+    ⚠️ **`iterdir` rather than `glob`, and `is_dir()` in front of it, because a
+    mutation sweep proved the check was doing nothing.** `Path.glob` on a FILE
+    returns an empty list rather than raising (measured, 3.14), so with a glob
+    the directory check could be deleted and every test stayed green: correct
+    today, and correct only by an accident of the library. **With `iterdir` the
+    guard is load-bearing**, and the test that a file named like a lesson is not
+    a captioned lecture can fail for the right reason.
+    """
+    caps = folder / "captions"
+    if not caps.is_dir():
+        return 0
+    return len([d for d in caps.iterdir()
+                if d.is_dir() and DOC_ID_RE.match(d.name)
+                and any(f.suffix == ".vtt" for f in d.iterdir())])
+
+
+def caption_count_line(n):
+    """The wizard's caption count as a SENTENCE, built here rather than in the page.
+
+    🔴 **The sentence lives in Python because its wording is the fix, not
+    decoration.** The manager's ruling on defect two made "say what the number
+    means" a requirement rather than a nicety, and a requirement that lives in a
+    JavaScript string inside a page template is one nothing can test without
+    pinning its spelling. **Built here, the wording is a function anybody can
+    run.** Its siblings on that page (lessons, videos, readings, PDFs) are still
+    assembled in the page's own script; this one is not, and that asymmetry is
+    the point rather than an oversight.
+
+    🟢 **"whole or partly" is doing the work.** Without it the reader is told a
+    number that answers "how many have some captions" while looking like an
+    answer to "how many are finished", and those differ by every partly built
+    lecture. **Empty string when nothing is captioned**, so the page says
+    nothing rather than saying zero, which is what every sibling does.
+    """
+    if not n:
+        return ""
+    return "already on %d lecture%s, whole or partly" % (n, "" if n == 1 else "s")
+
+
 # The shape this module happens to use, kept where a feature genuinely needs it
 # (the vault's week and topic numbering) rather than as a gate on the whole
 # reader.
 WTP_RE = re.compile(r"^W\d{1,2}-T\d{1,2}-P\d{1,2}\Z")
 # A colon is allowed because four of the module's topic titles contain one, and
 # rejecting it silently blocked every vault write for those lessons: the badge
-# said "not saved" and the highlights never reached The Box (found 2026-08-13).
+# said "not saved" and the highlights never reached the vault (found 2026-08-13).
 # It is safe here because the two places this value lands both handle it:
 # UNSAFE_FILENAME strips it out of the filename, and in the note it appears only
 # in a markdown heading, never in YAML.
@@ -615,7 +720,7 @@ def init_config(path=CONFIG_PATH):
         cfg["project_link"] = ""
         cfg["store_prefix"] = ""
     # 🔴 On only if there is actually a vault to write into. A fresh install on
-    # a machine with no Obsidian otherwise boots showing "The Box: vault not
+    # a machine with no Obsidian otherwise boots showing "<vault name>: vault not
     # found", which is the first thing a new user would see and would read as a
     # broken install rather than as an unused feature.
     cfg["vault_enabled"] = Path(cfg["vault_courses"]).parent.is_dir()
@@ -1543,15 +1648,16 @@ def vault_on(cfg):
 def vault_display_name(cfg):
     """What the reader calls the vault, taken from the path it writes into.
 
-    🔴 The badge used to say "The Box", which is the name of ONE person's
-    Obsidian vault. On anybody else's machine that is a proper noun they have
-    never seen, attached to a feature they may have just switched on, and the
-    reader looked like it had been built for somebody else because it had.
+    🔴 The badge used to carry a HARDCODED vault name, which was the name of
+    ONE person's Obsidian vault. On anybody else's machine that is a proper noun
+    they have never seen, attached to a feature they may have just switched on,
+    and the reader looked like it had been built for somebody else because it
+    had.
 
     `vault_courses` points at `<vault>/Courses`, so the vault's own folder name
-    is its parent, and deriving it means EH still reads "The Box" while a
-    recipient reads whatever they called theirs. "Vault" is the fallback for a
-    path shaped in a way this cannot read."""
+    is its parent, and deriving it means EH still reads his own vault's name
+    while a recipient reads whatever they called theirs. "Vault" is the fallback
+    for a path shaped in a way this cannot read."""
     try:
         name = Path(cfg.get("vault_courses") or "").parent.name.strip()
     except (TypeError, ValueError):
@@ -1585,8 +1691,8 @@ def write_vault(cfg, payload):
 
     courses = cfg["vault_courses"]
     # Create Courses/ inside a vault that exists; never create the vault itself.
-    # A wrong path would otherwise grow a convincing empty copy of The Box, and
-    # every highlight would land in it unnoticed.
+    # A wrong path would otherwise grow a convincing empty copy of the vault,
+    # and every highlight would land in it unnoticed.
     if not courses.parent.is_dir():
         raise ValueError(
             "the vault is not at %s, so nothing was written. Fix vault_courses "
@@ -1614,8 +1720,13 @@ def write_vault(cfg, payload):
     with WRITE_LOCK:
         if target.exists():
             existing = target.read_text(encoding="utf-8")
-            # Back up before a substantial rewrite, per the house rule. One per
-            # day is enough; the vault is also in Dropbox with version history.
+            # Back up before a substantial rewrite, per the house rule. One
+            # per day is enough because of WHAT it guards: this code rewriting a
+            # note badly. The first copy of the day holds the state before
+            # today's writes, and a second would only preserve damage already
+            # done. A synced vault keeps its own history on top of that, which
+            # is a bonus and deliberately not the reason: a recipient's vault
+            # may not be synced at all.
             bak = target.with_suffix(".md.%s.bak" % datetime.now().strftime("%Y%m%d"))
             if not bak.exists():
                 bak.write_text(existing, encoding="utf-8")
@@ -2436,8 +2547,9 @@ def clean_palette(raw, fallback):
 
 def settings_path(cfg):
     """In the working directory, not the machine config, because these are
-    preferences rather than machine state: they belong in Dropbox where both
-    Macs see the same ones, and nothing in here is a secret.
+    preferences rather than machine state: they belong beside the courses, where
+    a synced folder gives every machine the same ones, and nothing in here is a
+    secret.
 
     🔴 Two levels since 2026-08-16 (plan §10a/§10c): with a courses root the
     preferences live at the ROOT, so his palette and his model follow him into
@@ -2990,7 +3102,7 @@ def do_ask(cfg, payload):
 # --------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------
-# marks: the source of truth, on disk, in Dropbox
+# marks: the source of truth, on disk beside the notes
 # --------------------------------------------------------------------------
 
 def sidecar_path(cfg, doc_id, suffix):
@@ -3524,6 +3636,61 @@ def lecture_time(order, mats_docs, lstate):
     watched = sum(v for d, v in mins.items()
                   if v and (lstate.get(d) or {}).get("watched"))
     return total, watched, sum(1 for d in order if mins[d] is None)
+
+
+def unlisted_time(order, mats_docs):
+    """(minutes, lectures) a course has material for and no lesson page for.
+
+    🔴 THE SILENCE THIS EXISTS TO END. `lecture_time` sums over `order`, and
+    that is right: a total disagreeing with the "0 of 38" bar three lines away
+    would be the worst kind of wrong number. **But the page then never mentions
+    the rest.** One course carries 12 lectures and 2 h 24 min of material with
+    no lesson written, and a reader is told 9 h 53 min and never told the other
+    two and a half hours exist. ⚠️ **That is the same under-reporting the gap
+    clause beside it already refuses to do silently** for a lesson with no
+    duration, one level up.
+
+    🟢 So the page shows BOTH numbers, each labelled with what it counts. It
+    chooses between them for nobody, which is why it needed no ruling from the
+    reader: no reading of "the total video time for the whole course" is misled
+    by being shown the whole course.
+
+    ⚠️ Junk is SKIPPED here rather than counted as a gap, which is the opposite
+    of `lecture_time`'s rule and deliberate: this is a secondary clause about
+    material nobody has written up, and a course onboarded badly should not
+    grow a second complaint on the strength of it.
+    """
+    listed = set(order or ())
+    minutes = 0
+    lectures = 0
+    for doc, row in (mats_docs or {}).items():
+        if doc in listed:
+            continue
+        try:
+            v = int((row or {}).get("minutes"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if v > 0:
+            minutes += v
+            lectures += 1
+    return minutes, lectures
+
+
+def nb(text):
+    """The same words, with every space made non-breaking.
+
+    🔴 A quantity and its label are one thing to read and must wrap as one. QA
+    measured a 382px viewport putting "left" alone on the next line, which
+    separates "9 h 53 min" from the only word saying what it is, **and the two
+    figures on that line are often identical**, so the reader is briefly
+    looking at what appears to be a bare repetition.
+
+    ⚠️ The obvious fix is one non-breaking space between the figure and its
+    label, and it moves the problem rather than solving it: "9 h 53 min" has
+    two breakable spaces of its own, so the line can still split as "9 h 53 /
+    min left". The unit that must not break is the whole phrase.
+    """
+    return text.replace(" ", "\u00a0")
 
 
 def ratings_html(state, label_for):
@@ -4276,8 +4443,9 @@ def write_chatmarks(cfg, doc_id, payload):
 
 def read_chats(cfg, doc_id):
     """Saved Explain conversations for one note. Same sidecar pattern as marks
-    and additions: a plain JSON file next to the note, in Dropbox, so a
-    conversation is still there next week and is readable without the page."""
+    and additions: a plain JSON file next to the note, so a conversation is
+    still there next week, is readable without the page, and travels with the
+    courses folder however that folder is synced."""
     return read_json_sidecar(sidecar_path(cfg, doc_id, "chats"),
                              {"doc": doc_id, "chats": []})
 
@@ -6583,6 +6751,19 @@ def core_ideas_html(cfg, unit_id):
     return "".join(md_to_blocks(text))
 
 
+def heading_words(head_html):
+    """The plain words of a rendered heading, for a label read aloud.
+
+    🔴 Stripping the TAGS is not enough, and the half that is missing is
+    invisible on screen. A week heading is built as `Week 2 &middot; Normal
+    child development`, so tag-stripping alone leaves the ENTITY in the text;
+    the caller then escapes that text for an attribute and it becomes
+    `&amp;middot;`, which a screen reader announces literally. Unescape before
+    handing plain text to something that will escape it again.
+    """
+    return html_mod.unescape(re.sub(r"<[^>]+>", "", head_html)).strip()
+
+
 def core_ideas_panel(cfg, unit_id, label):
     """The pill and its in-place panel, or "" for a unit with nothing written.
 
@@ -8378,7 +8559,7 @@ WIZARD_PAGE = """<!-- study-wizard -->
         <label><input type="radio" name="src-lessons" value="site">
           They are on my course site (KEATS, Moodle, Canvas); download them</label>
         <input type="text" id="f-site"
-               placeholder="If your course is on Moodle, KEATS or Canvas, paste its address (optional)"
+               placeholder="Paste your course page address (optional)"
                autocomplete="off" autocapitalize="off" spellcheck="false"
                aria-label="The address of your course page">
       </div>
@@ -8418,7 +8599,9 @@ WIZARD_PAGE = """<!-- study-wizard -->
         <p class="hint">Taken from the transcript and timed against the
            recording, so they are not a machine&#8217;s guess at what was said.
            Narrated slide packages and plain recordings alike, skipping any
-           lecture that already has them.
+           lecture that already has them. The count beside the tick is lectures
+           carrying <b>some</b> captions; the Captions section in Settings says
+           which are finished and which are only part-way.
            <b>This one is slow</b>: it listens to every lecture in the course,
            one at a time, so expect tens of minutes rather than seconds. You can
            leave it running.</p>
@@ -8618,8 +8801,11 @@ WIZARD_PAGE = """<!-- study-wizard -->
     ? 'already wired for ' + STATUS.videos : '';
   already.readings.textContent = STATUS.readings
     ? 'already in: ' + STATUS.readings : '';
-  already.captions.textContent = STATUS.captions
-    ? 'already on ' + STATUS.captions + ' lecture' + (STATUS.captions === 1 ? '' : 's') : '';
+  /* 🔴 THE ONE LABEL ON THIS PAGE THAT IS NOT ASSEMBLED HERE. Its wording says
+     which question the number answers ("some captions", not "finished"), which
+     is a requirement rather than a flourish, so it is built in
+     `caption_count_line` where a test can run it. */
+  already.captions.textContent = STATUS.captions_line || '';
   already.consol.textContent = STATUS.consolidated
     ? 'already built: ' + STATUS.consolidated + ' PDF'
       + (STATUS.consolidated === 1 ? '' : 's') : '';
@@ -9468,6 +9654,11 @@ HUB_TREE_JS = """<script>
     if (!m) { return h + ' h'; }
     return h + ' h ' + m + ' min';
   }
+  /* A quantity and its label wrap as one thing or the label orphans: measured
+     at 382px, where "left" landed alone on the next line and the figure above
+     it read as a bare number. Every space in the phrase, not just the last
+     one, because "9 h 53 min" has two of its own. */
+  function nb(s) { return String(s).replace(/ /g, '\u00a0'); }
   /* The minutes are re-derived from the rows for the same reason the counts
      are: the row is the only thing that knows whether it is watched NOW, and a
      total carried in a variable is a second copy that goes stale the moment
@@ -9489,10 +9680,13 @@ HUB_TREE_JS = """<script>
     for (var j = 0; j < rows.length; j++) { total += Number(rows[j].getAttribute('data-min')) || 0; }
     if (wEl) {
       wEl.setAttribute('data-watchedmin', String(watched));
-      wEl.textContent = hm(watched) + ' watched';
+      wEl.textContent = nb(hm(watched) + ' watched');
     }
-    if (lEl) { lEl.textContent = hm(Math.max(0, total - watched)) + ' left'; }
-    if (totalEl) { totalEl.textContent = hm(total) + ' of lecture'; }
+    if (lEl) { lEl.textContent = nb(hm(Math.max(0, total - watched)) + ' left'); }
+    /* Only the FIGURE, because "across these 38 lessons" is static text beside
+       this span and the count is the server's, derived from the same number the
+       bars print. Rewriting it here would be a second copy of that count. */
+    if (totalEl) { totalEl.textContent = nb(hm(total)); }
   }
   /* One paint for both scales at all three levels. `set` is the .hrateset for
      one unit, so a week's bulbs cannot repaint a part's. */
@@ -11300,7 +11494,7 @@ def modules_summary(cfg):
             # 🔴 Empty when publishing is off, so the status line says "off"
             # rather than naming a vault folder the reader will never write to.
             # A recipient with no Obsidian was otherwise shown a path into a
-            # "The Box" they do not have, which reads as a misconfiguration.
+            # vault they do not have, which reads as a misconfiguration.
             "vault": (str(cfg.get("vault_courses") or "")
                       if vault_on(cfg) else ""),
             "server": "http://%s:%s/" % (cfg["bind_ip"], cfg["port"])}
@@ -13812,7 +14006,7 @@ class Handler(BaseHTTPRequestHandler):
                             ratings_html(lstate.get(wk_id),
                                          lambda w: "Rate this week: %s" % w)))
             wci = core_ideas_panel(mcfg, wk_id,
-                                   "Core ideas for %s" % re.sub(r"<[^>]+>", "", whead))
+                                   "Core ideas for %s" % heading_words(whead))
             # 🔴 The heading is a WRAPPER now, not the <h2> itself: `<details>` is
             # flow content and an <h2> takes phrasing, so the panel cannot live
             # inside the heading element. `.hwh` keeps every rule it had (the
@@ -13847,7 +14041,7 @@ class Handler(BaseHTTPRequestHandler):
                     # but not the level between them.
                     tci = core_ideas_panel(
                         mcfg, tp_id,
-                        "Core ideas for %s" % (re.sub(r"<[^>]+>", "", thead)
+                        "Core ideas for %s" % (heading_words(thead)
                                                or (tp_id or "this topic")))
                     rows.append('<div class="htopic">'
                                 + ('<div class="hth"><h3 class="hthn">%s</h3>%s%s</div>'
@@ -13956,13 +14150,52 @@ class Handler(BaseHTTPRequestHandler):
                        % (no_minutes,
                           "lesson" if no_minutes == 1 else "lessons",
                           "has" if no_minutes == 1 else "have"))
+            # 🔴 "of lecture" read as a claim about the COURSE and the course
+            # holds more. The number was right and the word was wrong, and
+            # labelling it "across these 38 lessons" alone is true and still
+            # never tells the reader the rest exists. So: BOTH numbers, each
+            # labelled with what it counts. See `unlisted_time`.
+            # ⚠️ The COUNT is deliberately not printed, ruled 2026-09-09 on
+            # QA's question. EH asked for a time tally, so the minutes ARE the
+            # answer and the count was never the point. `unlisted_time` still
+            # returns it and the tests still pin it, because it is what proves
+            # these minutes came from whole lectures rather than arithmetic.
+            extra_min = unlisted_time(order, mats_docs)[0]
+            more = ""
+            if extra_min:
+                # 🔴 This clause used to say "in 12 lectures with no lesson
+                # yet", which asked the reader to hold "lecture" and "lesson"
+                # apart in one breath. Outside this project they are the same
+                # word, and only ONE of them has a referent on screen: the page
+                # is a list of lessons. So the sentence now says the STATE
+                # against the word the page itself teaches by showing it, and
+                # still never says who writes them.
+                #    🔴 AND THE FIGURE IS FROZEN TO THE FIRST WORD OF ITS
+                #    LABEL, not just internally. Measured in a browser over
+                #    251 container widths: with only "2 h 24 min" joined, the
+                #    figure ends a line with no label beside it at 7 of them,
+                #    and the clause it REPLACED did the same at 10. Nobody had
+                #    caught that, because the width sweep that passed this line
+                #    treated this clause as prose and only checked the three
+                #    whole figure spans. Joining one more word takes it to 0 of
+                #    251 and costs nothing: same three lines, same 67px at
+                #    384px, no line ever wider than its box.
+                more = ('<span class="htx">, and %s yet covered by a '
+                        'lesson</span>'
+                        % nb(hours_and_minutes(extra_min) + " not"))
+            # 🔴 The lesson count is derived from `n`, the same number the bars
+            # three lines up print, so the two can never disagree. It is
+            # deliberately OUTSIDE `.htt`, because nothing about watching
+            # changes it and the live update must not have to recompute it.
             return ('<p class="htime">'
-                    '<span class="htt">%s of lecture</span> &middot; '
-                    '<span class="htw" data-watchedmin="%d">%s watched</span> &middot; '
-                    '<span class="htl">%s left</span>%s</p>'
-                    % (hours_and_minutes(total_min), watched_min,
-                       hours_and_minutes(watched_min),
-                       hours_and_minutes(left), gap))
+                    '<span class="htt">%s</span> across %s &middot; '
+                    '<span class="htw" data-watchedmin="%d">%s</span> &middot; '
+                    '<span class="htl">%s</span>%s%s</p>'
+                    % (nb(hours_and_minutes(total_min)),
+                       "this lesson" if n == 1 else "these %d lessons" % n,
+                       watched_min,
+                       nb(hours_and_minutes(watched_min) + " watched"),
+                       nb(hours_and_minutes(left) + " left"), more, gap))
 
         def meter(label, count):
             pct = int(round(100.0 * count / n)) if n else 0
@@ -14095,15 +14328,17 @@ class Handler(BaseHTTPRequestHandler):
             pass
         nconsol = len(list((folder / "consolidated").glob("*.pdf"))
                       if (folder / "consolidated").is_dir() else [])
-        # A lecture is captioned when its folder holds the .vtt the reader is
-        # served, which is the same file `lesson_json` looks for. Counted from
-        # the disk rather than from a sidecar's claim about itself.
-        ncaptions = len([d for d in (folder / "captions").iterdir()
-                         if (d / "video.vtt").is_file()]
-                        if (folder / "captions").is_dir() else [])
+        # 🟢 Counted from the disk rather than from a sidecar's claim about
+        # itself, and by a function rather than inline: the rule was stated
+        # correctly in a comment here and implemented loosely one line below it,
+        # where nothing could test the difference.
+        ncaptions = captioned_docs(folder)
         status = {"lessons": nlessons, "videos": nvideos,
                   "readings": nreadings, "consolidated": nconsol,
                   "captions": ncaptions,
+                  # 🔴 The NUMBER decides the tick; the SENTENCE is what the
+                  # reader acts on, and it is built where it can be tested.
+                  "captions_line": caption_count_line(ncaptions),
                   "video_bytes": vid_bytes, "pack_bytes": pack_bytes}
 
         fill = {"course": code}

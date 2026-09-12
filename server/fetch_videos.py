@@ -14,10 +14,30 @@ mirror-packages skill does those.
 
 Usage:
     python3 server/fetch_videos.py <course-folder> [--doc W1-T1-P1] [--force]
+                                   [--audio] [--recode-audio]
+                                   [--limit N] [--pause SECONDS]
+
+    --audio         also lift the audio out to <course>/audio/<doc>.m4a, with
+                    `-c:a copy`, so it is a remux and not a re-encode
+    --recode-audio  32 kbps mono instead: roughly half the size, and it does
+                    cost quality. Never the default
+    --limit N       stop after N actual downloads, so a first run can be 3
+    --pause SECONDS between real downloads only, default 2.0
+
+🔴 NOT EVERY LECTURE CAN BE FETCHED THIS WAY. Only the ones carrying a Kaltura
+entry id have a recording behind them; the rest are narrated slide PACKAGES, and
+on the three courses measured here that was 80 of 122, with one course as low as
+9 of its 38. A package's narration is already on disk as per-slide mp3s inside
+the package itself. Assembling those is a different job and is not this script's.
+
+The summary line says how many were skipped for want of an entry id, so the gap
+is visible from the run rather than discovered later.
 """
 
 import json
+import subprocess
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -98,12 +118,114 @@ def fetch_one(doc, entry, dest, force=False, opener=urllib.request.urlopen):
     return "fetched", dest.stat().st_size
 
 
+# 🔴 EH asked for the politeness explicitly ("Can we do so slowly so the server
+# doesn't block us"). 122 sequential fetches of a few MB is nothing like an
+# attack, but the polite version costs one sleep and removes the question.
+PAUSE = 2.0
+
+# The recorded size is rounded to the minute in materials.json, so a tolerance
+# under 60s would fire on correct files. 90s is one rounding plus slack.
+DURATION_SLACK = 90.0
+
+
+def audio_dest(folder, doc):
+    """`<course>/audio/<doc>.m4a`.
+
+    🔴 NOT beside the video. `courses/**/videos/` is gitignored and
+    `courses/**/audio/` is too (added in the same change), and `push_guard`'s
+    "course media" rule catches a stray `.m4a` under `courses/` even if both
+    ignore rules were deleted. These are KCL recordings; two independent guards
+    is the right number."""
+    return folder / "audio" / (doc + ".m4a")
+
+
+def extract_audio(src, dest, recode=False, runner=subprocess.run):
+    """The audio stream out of a downloaded lecture. Returns (what, bytes).
+
+    🟢 `-vn -c:a copy` REMUXES: the AAC stream is lifted out untouched, so there
+    is no quality loss and it takes about a second. `recode=True` is the second
+    flag the entry asked for, 32 kbps mono, which roughly halves it and does cost
+    quality - a deliberate choice, never the default.
+
+    🔴 Writes to a `.part` and renames, the same discipline `fetch_one` uses: a
+    half-written .m4a that looks finished is the failure this whole module was
+    rewritten to stop."""
+    if dest.exists():
+        return "kept", dest.stat().st_size
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".part")
+    if tmp.exists():
+        tmp.unlink()
+    codec = ["-c:a", "aac", "-b:a", "32k", "-ac", "1"] if recode else ["-c:a", "copy"]
+    r = runner(["ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+                "-i", str(src), "-vn"] + codec + ["-f", "mp4", str(tmp)],
+               capture_output=True, text=True)
+    if getattr(r, "returncode", 1) != 0 or not tmp.exists() or tmp.stat().st_size == 0:
+        if tmp.exists():
+            tmp.unlink()
+        raise RuntimeError("ffmpeg could not take the audio out of %s: %s"
+                           % (src.name, (getattr(r, "stderr", "") or "").strip()[:200]))
+    tmp.rename(dest)
+    return "extracted", dest.stat().st_size
+
+
+def probe_seconds(path, runner=subprocess.run):
+    """The real duration of a media file, or None if ffprobe cannot say.
+
+    🔴 None is NOT zero. A caller that treats "could not measure" as "zero
+    seconds" reports every file as wrong, which is the shape that trains a reader
+    to ignore the check."""
+    r = runner(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+               capture_output=True, text=True)
+    if getattr(r, "returncode", 1) != 0:
+        return None
+    try:
+        return float((getattr(r, "stdout", "") or "").strip())
+    except ValueError:
+        return None
+
+
+def duration_verdict(seconds, minutes):
+    """Compare a measured duration against materials.json's recorded `minutes`.
+
+    Returns (ok, sentence). 🔴 `ok` is True when the check could not run, because
+    an unmeasurable file is not a wrong one and this must not manufacture
+    failures; the sentence still says so."""
+    if seconds is None:
+        return True, "duration unmeasured (ffprobe said nothing)"
+    if not minutes:
+        return True, "%.0fs, nothing recorded to compare with" % seconds
+    drift = abs(seconds - minutes * 60.0)
+    if drift <= DURATION_SLACK:
+        return True, "%.0fs against %d min recorded" % (seconds, minutes)
+    return False, ("%.0fs but %d min recorded, off by %.0fs - the audio is not "
+                   "the whole lecture" % (seconds, minutes, drift))
+
+
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    force = "--force" in sys.argv
-    only = None
-    if "--doc" in sys.argv:
-        only = sys.argv[sys.argv.index("--doc") + 1]
+    argv = sys.argv[1:]
+
+    def opt(name, default=None):
+        return argv[argv.index(name) + 1] if name in argv else default
+
+    flagged = set()
+    for i, a in enumerate(argv):
+        if a in ("--doc", "--limit", "--pause"):
+            flagged.add(i + 1)
+    args = [a for i, a in enumerate(argv)
+            if not a.startswith("--") and i not in flagged]
+    force = "--force" in argv
+    want_audio = "--audio" in argv
+    recode = "--recode-audio" in argv
+    only = opt("--doc")
+    try:
+        limit = int(opt("--limit", "0"))
+        pause = float(opt("--pause", str(PAUSE)))
+    except ValueError:
+        sys.exit("--limit takes a whole number and --pause takes seconds")
+    if recode and not want_audio:
+        sys.exit("--recode-audio only means something with --audio")
     if not args:
         sys.exit(__doc__)
     folder = Path(args[0]).expanduser().resolve()
@@ -113,7 +235,8 @@ def main():
     docs = json.loads(mats.read_text(encoding="utf-8")).get("docs", {})
     vdir = folder / "videos"
     vdir.mkdir(exist_ok=True)
-    got, skipped, failed = 0, 0, []
+    got, skipped, failed, drift, shortaudio = 0, 0, [], [], []
+    fetched_this_run = 0
     for doc, e in sorted(docs.items()):
         if only and doc != only:
             continue
@@ -121,16 +244,59 @@ def main():
         if not entry:
             skipped += 1
             continue
+        if limit and fetched_this_run >= limit:
+            break
         try:
-            what, size = fetch_one(doc, entry, vdir / (doc + ".mp4"), force)
-            print("%s: %s, %.1f MB" % (doc, what, size / 1048576))
+            dest = vdir / (doc + ".mp4")
+            # 🔴 The pause goes BEFORE a real fetch and never before a skip:
+            # pausing between files already on disk turns a resume of 122
+            # lectures into four minutes of sleeping for nothing.
+            if pause and fetched_this_run and not (dest.exists() and not force):
+                time.sleep(pause)
+            what, size = fetch_one(doc, entry, dest, force)
+            line = "%s: %s, %.1f MB" % (doc, what, size / 1048576)
+            if what == "fetched":
+                fetched_this_run += 1
+            # The recorded size is a free, exact second opinion, and it is a
+            # different question from `fetch_one`'s Content-Length check: that
+            # one asks whether the transfer finished, this one asks whether the
+            # file is still the one we measured. A complete file that disagrees
+            # is reported, never deleted.
+            want = e.get("media_bytes")
+            if want and size != want:
+                drift.append(doc)
+                line += "  🔴 SIZE DRIFT: materials.json records %d" % want
+            print(line)
             got += 1
+            if want_audio:
+                a = audio_dest(folder, doc)
+                aw, asize = extract_audio(dest, a, recode=recode)
+                ok, said = duration_verdict(probe_seconds(a), e.get("minutes"))
+                if not ok:
+                    shortaudio.append(doc)
+                print("    audio %s, %.1f MB, %s%s"
+                      % (aw, asize / 1048576, said, "" if ok else "  🔴"))
         except Exception as exc:  # report and continue; one failure is one fact
             print("%s: FAILED: %s" % (doc, exc))
             failed.append(doc)
+
+    # 🟢 A POSITIVE RESULT, per this project's rule: a run that found nothing
+    # wrong and a check that never ran look identical from outside.
     print("\n%d on disk, %d without an entry id (packages or plain links), %d failed%s"
           % (got, skipped, len(failed), (": " + ", ".join(failed)) if failed else ""))
-    if failed:
+    if fetched_this_run == 0 and got:
+        print("nothing was downloaded: every one of those %d was already on disk" % got)
+    if limit and fetched_this_run >= limit:
+        print("stopped at --limit %d; run it again to continue" % limit)
+    print("size against materials.json: %s"
+          % ("all %d match" % got if not drift
+             else "🔴 %d differ: %s" % (len(drift), ", ".join(drift))))
+    if want_audio:
+        print("audio length against the recorded minutes: %s"
+              % ("all %d within %ds" % (got - len(shortaudio), int(DURATION_SLACK))
+                 if not shortaudio
+                 else "🔴 %d short: %s" % (len(shortaudio), ", ".join(shortaudio))))
+    if failed or shortaudio:
         sys.exit(1)
 
 

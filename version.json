@@ -1,5 +1,5 @@
 {
- "version": "2026.09.09a+850eeda",
+ "version": "2026.09.12+753dc23",
  "url": "https://github.com/ehawkin/study-hub/releases/latest",
- "note": "Course collection now handles website-shaped courses, the setup wizard no longer hands you a prompt to fill in, captions are part of onboarding, and lecture transcripts follow a corrected three-file rule."
+ "note": "This kit removes the author's own identifiers from the shipped files: course codes, a personal sync-folder path and a personal vault name, all of them in source comments. One real fix comes with it: the reader looked for an Obsidian vault by one hardcoded name, so anybody whose vault is called something else had publishing switched off with nothing to explain why, and it now finds any real Obsidian vault in the usual places. If you are holding v2026.09.08, replace it: that kit cannot start, and a kit that cannot start cannot tell you an update exists."
 }

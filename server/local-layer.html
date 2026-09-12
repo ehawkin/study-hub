@@ -7,7 +7,8 @@ the layer detects loopback and otherwise does nothing at all: no buttons, no
 badge, no failed fetches in the console.
 
 What it adds when the server is there:
-  - automatic vault sync, so highlights reach The Box with no export step;
+  - automatic vault sync, so highlights reach your Obsidian vault with no
+    export step;
   - Look up, which is free and instant-ish: the module glossary, MeSH, Wikipedia;
   - Explain, which asks Claude through the local CLI and costs no API key;
   - Keep, which files an explanation beside the note, never inside it.
@@ -1093,7 +1094,14 @@ What it adds when the server is there:
      whenever you like, so it is a sentence and a link. Giving them the same
      weight is what makes the urgent one ignorable. */
   .sv-notice {
-    display: flex; align-items: baseline; gap: 10px;
+    /* 🔴 `flex-wrap: wrap` IS LOAD-BEARING AND WAS MISSING FOR A MONTH.
+       Without it the button never shrinks (`.sv-notice-act` is `0 0 auto`) and
+       the sentence collapses around it: measured on a 320px screen, the button
+       held 154px at EVERY width from 320 to 1240 while the text ran in a 69px
+       column, 30 lines, 685px tall on a 568px phone. Found by `study-hub-qa`
+       against a pass they had already given, because that pass measured one
+       width. */
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
     margin: 0 0 18px; padding: 9px 12px;
     border: 1px solid var(--rule); border-left-width: 3px; border-radius: 7px;
     font-size: .92em; color: var(--muted); background: none;
@@ -1105,7 +1113,14 @@ What it adds when the server is there:
      edge, which is the palette's own "this is in hand" green and is already
      used for the states the reader is meant to notice. */
   .sv-notice-restart { border-left-color: var(--regulated); color: var(--ink); }
-  .sv-notice-txt { flex: 1 1 auto; min-width: 0; }
+  /* 🔴 260px IS A WRAP THRESHOLD, NOT A WIDTH, and it was chosen by sweeping
+     rather than by taste. `auto` here means "as wide as the whole sentence",
+     which makes the button wrap onto its own line at EVERY width including
+     1240, where it is not wanted. Measured across 320 / 375 / 414 / 440 / 480 /
+     560 / 720 / 1240: a 260px basis wraps the button below 480 and nowhere
+     above it, and is shorter or identical at every one of the eight. 220px is
+     the same idea and leaves 480 unimproved; 300px measures identically to 260. */
+  .sv-notice-txt { flex: 1 1 260px; min-width: 0; }
   .sv-notice-act {
     flex: 0 0 auto; background: none; border: 1px solid var(--rule); border-radius: 6px;
     color: inherit; font: inherit; padding: 2px 9px; cursor: pointer;
@@ -1742,6 +1757,18 @@ What it adds when the server is there:
     border-bottom: 1px dotted var(--muted) !important;
     cursor: help !important;
   }
+  /* 🔴 hostword-exempt: CSS cannot call a JavaScript function.
+     This is the ONE site the zero-assertion in `test_machine_word.py` allows,
+     and the exemption is named here rather than only in the test so the reason
+     travels with the code. Every other "this machine" in this file goes through
+     `hostWord()`, which says the server's real name when the reader is not on
+     it. A pseudo-element's `content` cannot, so the alternatives are moving
+     this string into JavaScript (a real change to how the marker is drawn, for
+     one string) or wording it so locality is not claimed. ⚠️ It IS wrong for a
+     reader on another machine, which is why it is an exemption and not a
+     decision: the sentence beside it in the tooltip is now correct and this one
+     still is not. The assertion is a SUPERSET, so fixing this later never turns
+     the test red. */
   .wrap a.sv-xref-gone::after {
     content: " (not on this machine)";
     font-size: .82em; font-style: italic; color: var(--muted); white-space: nowrap;
@@ -1868,18 +1895,57 @@ What it adds when the server is there:
      🔴🔴 RE-MEASURED 2026-09-09 OVER THE WHOLE CORPUS, AND THE OLD METHOD WAS
      MEASURING THE WRONG CUE. Four recovered lectures pushed the longest cue to
      93 characters, so the tripwire fired and every cue was measured rather than
-     just the longest one: **463 files, 10,504 cues, each laid out in a real
-     `.sv-pkgcap` in a real lesson page.**
+     just the longest one, each laid out in a real `.sv-pkgcap` in a real lesson
+     page.
 
-       605px (EH's pane)   0 cues need three lines
-       440px (the default) 0
-       400px               0
-       380px               7
-       376px              14
-       370px              41
+     🔴🔴 RE-ANCHORED AND RE-COUNTED 2026-09-10, ON TWO CORRECTIONS FROM
+     `study-hub-qa`. Both are corrections to THIS COMMENT rather than to the
+     design, and no behaviour changed.
 
-     🟢 **THE DESIGN NUMBER HOLDS, and now on the whole corpus rather than on one
-     cue**: at every width anybody actually uses, 44px holds every cue there is.
+     1. **THE ANCHOR WAS AN ASSUMPTION WEARING THE COSTUME OF A MEASUREMENT.**
+        This block said "EH's pane is 605px". `courses/settings.json` holds
+        **`panelWidth: 379`**, which the server serves and the layer applies
+        (measured `--sv-panel-set: 379px`, a caption box of 378px). **379 is
+        below every width the old table reassured about**, so every figure here
+        was correct arithmetic on a wrong anchor.
+     2. **THE CORPUS INCLUDED OUR OWN BACKUPS.** The scan globbed every `.vtt`
+        two levels under a course's `captions`, which matches
+        `<lesson>.<timestamp>.bak` directories as readily as lessons:
+        **463 files where 451 are live, and 3,131 of 10,504 cues
+        (29.8%) from 12 files no reader can reach.** Narrowed to `DOC_ID_RE` in
+        `test_captions_render.live_caption_files`, with a backup directory kept
+        as a fixture so the scan cannot re-acquire them.
+
+     **THE TABLE, on the LIVE corpus (451 files, 7,373 cues), measured through
+     the real element by `study-hub-qa` 2026-09-09:**
+
+       605px (the old anchor)      0 cues need three lines
+       440px (the shipped default) 0
+       400px                       0
+       379px  <- WHAT IS STORED    8    0.11%
+       376px                      11    0.15%
+       370px                27 or 31    see the note below
+       340px                     815   11.05%
+       320px (the grip's minimum)  2,414   32.74%
+
+     ⚠️ **370px CARRIES TWO FIGURES BECAUSE THE SOURCE DOES, and neither is being
+     picked here.** The filing gives 31 in its per-width table and 27 in its
+     corpus-comparison table, for the same widths on the same live corpus.
+     **Writing one of them down as the number would be this comment's own
+     mistake repeating**: an unverified figure that reads as measured. It is
+     raised with QA; whoever settles it replaces this line with one number and a
+     date. **Nothing below depends on which it is.**
+
+     🔴 **THE SENTENCE THAT USED TO CLOSE THIS BLOCK WAS FALSE AND IS DELETED**:
+     *"at every width anybody actually uses, 44px holds every cue there is"*.
+     **At 379px, the only width in use on this machine, 8 cues do not**, and at
+     320px, which the grip allows, **2,414 do (32.7%)** - so the claim was badly
+     false at the bottom of the supported range.
+
+     🟢 **8 in 7,373 IS 0.11% AND IS NOT A DEFECT, and nobody is asking for a
+     behaviour change.** The design number holds where it matters. **What was
+     wrong was the claim, and a claim is what the next person re-derives
+     against**: they would have got different numbers and not known why.
 
      🔴 **BUT CHARACTER COUNT DOES NOT PREDICT WRAPPING, which is why the old
      figure was optimistic.** The cues that need three lines first are **82 to 86
@@ -3951,10 +4017,11 @@ What it adds when the server is there:
   /* ---------- vault sync ---------- */
 
   /* 🔴 The vault's name comes from the config, never from here. This used to
-     read "The Box", which is the name of ONE person's Obsidian vault: correct
-     for him and a meaningless proper noun on anybody else's machine (plan 02
-     §9). The server derives it from the folder it writes into and sends it in
-     /api/status, so he still sees "The Box" and a recipient sees theirs.
+     be a HARDCODED name, the name of ONE person's Obsidian vault: correct for
+     him and a meaningless proper noun on anybody else's machine (plan 02 §9).
+     The server derives it from the folder it writes into and sends it in
+     /api/status, so he still sees his own vault's name and a recipient sees
+     theirs.
 
      "Vault" is what it says until that reply lands, which is also the honest
      answer for a path we cannot read a name out of. */
@@ -5015,7 +5082,7 @@ What it adds when the server is there:
      The popover is for a quick answer next to the thing you selected. Once a
      conversation is worth keeping it belongs on the side, out of the way of the
      text, where it persists and can be reopened. Chats live in
-     notes/<DOC>-chats.json, next to the marks, in Dropbox. */
+     notes/<DOC>-chats.json, on disk next to the marks. */
 
   var chats = [];        /* every saved conversation for this note */
   var openChat = null;   /* the one on screen */
@@ -5621,7 +5688,7 @@ What it adds when the server is there:
        Same build-once rule as the player below: the iframe IS the running
        player, and rebuilding it on a tab switch would put the narration back
        to the start. */
-    if (cur.kind === 'video' && !v_embed(cur) && matData.package_embed) {
+    if (packageFirst(cur)) {
       var psrc = matData.package_embed;
       matKeep.hidden = false;
       if (matKeepSrc !== psrc) {
@@ -5764,6 +5831,39 @@ What it adds when the server is there:
 
   function v_embed(v) { return !!(v && v.embed && matData && matData[v.embed]); }
 
+  /* 🔴 WHEN A LECTURE HAS BOTH, THE MIRRORED PACKAGE WINS. EH's ruling,
+     2026-09-10: *"go ahead and implement that fix so we play the HTML lecture
+     instead of the Kaltura lecture in our player unless we actually need it."*
+
+     🔴 **THE PROBLEM IT ROUTES AROUND, and it routes around it rather than
+     depending on it.** In one course here, `materials.json` gives `W1-T3-P1` and
+     `W1-T3-P2` the SAME Kaltura entry id, while their course-site pages, their
+     minutes and their file sizes all differ: they are two different lectures
+     and only OUR recorded id is duplicated. **So the second one played the
+     first one's recording.** Recovering the true id needs a KEATS session and
+     is nobody's tonight; **preferring what is on this disk needs nothing and is
+     right whatever the id says.**
+
+     🟢 **AND IT IS THE BETTER SOURCE ANYWAY**: the package is the lecture in the
+     form it was authored, served from this machine, with per-clip captions and a
+     speed control that works. The stream needs the internet and KCL's service.
+
+     ⚠️ **"UNLESS WE ACTUALLY NEED IT" IS HIS CAVEAT AND THE VIDEO PATH IS NOT
+     REMOVED.** With no package, the recording plays exactly as before; with one,
+     the arrow beside the tab still opens the original lecture in a new tab.
+
+     ⚠️ **WHAT THIS DELIBERATELY DOES NOT DECIDE**: a package beside a DOWNLOADED
+     recording. **Measured 2026-09-10 across all three courses on this machine
+     and 122 lectures: that combination does not exist anywhere** - the one
+     course that has both kinds holds 5 packages and 29 downloaded videos, and
+     no lecture with both. The package wins there too,
+     because one rule that cannot be got wrong beats two that need telling apart,
+     **but nobody has weighed that case and this comment is where they should
+     start.** */
+  function packageFirst(v) {
+    return !!(v && v.kind === 'video' && matData && matData.package_embed);
+  }
+
   /* What this view needs in order to open, said plainly. `none` means the file
      is served without any session at all, so there is nothing to say. */
   /* The way out, named for what it will actually do. A KEATS link sends you to
@@ -5782,8 +5882,11 @@ What it adds when the server is there:
      nothing. */
   function needOf(v) {
     if (!matData || !matData.access) return '';
-    var key = (v.embed && matData[v.embed]) ? v.embed
-            : (v.kind === 'video' && matData.package_embed) ? 'package_embed'
+    /* 🔴 The chip has to describe what the tab will SHOW, so it asks the same
+       question `renderMaterials` asks, in the same order. Two orders here and
+       there is how a tab comes to be labelled for a file it does not open. */
+    var key = packageFirst(v) ? 'package_embed'
+            : (v.embed && matData[v.embed]) ? v.embed
             : v.href;
     var need = key ? (matData.access[key] || '') : '';
     return (need && need !== 'none') ? need : '';
@@ -5876,7 +5979,7 @@ What it adds when the server is there:
        anything. It still gets the way out, because a viewer can fail for
        reasons that have nothing to do with permission. */
     if (need === 'local' || need === 'none') {
-      return 'This ' + (v.noun || 'file') + ' is on this machine, so it needs no ' +
+      return 'This ' + (v.noun || 'file') + ' is on ' + hostWord() + ', so it needs no ' +
              'sign-in. The arrow beside "' + v.label + '" above opens it in a tab.';
     }
     if (!says) {
@@ -6585,7 +6688,7 @@ What it adds when the server is there:
          instead of an outcome, so nothing on screen said this was the thing
          that fixes what you are reading. */
       return { kind: 'restart', token: String(d.disk_build),
-               text: 'The server on this machine has been updated, and this page '
+               text: 'The server on ' + hostWord() + ' has been updated, and this page '
                    + 'is still being served by the version that was running '
                    + 'before. Refreshing will not clear this: the server itself '
                    + 'has to be relaunched. It goes away for a moment and this '
@@ -8042,7 +8145,7 @@ What it adds when the server is there:
      rather than a single word. The server normalises and refuses anything over
      120 characters, so a long passage simply comes back without a definition
      and the card still lists the passage. */
-  function resolveCard(it, force) {
+  function resolveCard(it, force, done) {
     var id = String(it.id);
     if (cardsBusy[id]) return;
     if (!force && cards[id] && cards[id].def) return;
@@ -8069,10 +8172,22 @@ What it adds when the server is there:
         delete cardsBusy[id];
         renderCards();
         saveCards();
+        /* 🔴 SUCCESS ONLY, and that asymmetry is the whole safety argument.
+           `fillCards` passes itself here so the pending set drains in one
+           load instead of one card per load. It terminates because a resolved
+           card writes `cards[id]` (even with an empty definition, when nothing
+           was found), which is exactly what `fillCards` filters pending on, so
+           every hop removes one item from the set it is walking. */
+        if (done) done();
       })
       .catch(function () {
         delete cardsBusy[id];
         renderCards();
+        /* 🔴 NO CONTINUATION HERE, deliberately. A failure leaves `cards[id]`
+           unset, so the item is still pending: calling on would pick the SAME
+           card and issue the same request for ever. The drain stops at the
+           first failure and the next page load retries, which is exactly the
+           behaviour this path had before. */
       });
   }
 
@@ -8565,15 +8680,33 @@ What it adds when the server is there:
      its own key and carries from:'chat' so the list can tell them apart. */
   function cardFromChat(term) { markless(term, 'chat'); }
 
-  /* Anything marked as a card and not yet resolved gets resolved once. Serial
+  /* Anything marked as a card and not yet resolved gets resolved. Serial
      rather than all at once: a fresh lesson could have a dozen, and the lookup
-     goes out to MeSH and Wikipedia. */
+     goes out to MeSH and Wikipedia.
+
+     🔴 IT USED TO RESOLVE THE HEAD AND STOP. The comment above said "serial",
+     and serial is what it looked like, but nothing re-invoked this after a
+     success: `fillCards` has two callers, the load path and `S.onChange` on the
+     MARKS store, and a resolved card renders and calls `saveCards()`, which
+     never touches marks. So the second pending card waited for another page
+     load, the third for the one after that.
+
+     ⚠️ THE REASON IT SURVIVED ITS OWN PROOF: the scenario it was proved on had
+     two windows with one card each, so each side lacked EXACTLY ONE definition,
+     and one is the number the old code handled. A proof built on the smallest
+     case cannot tell "resolves the pending set" from "resolves the first
+     pending item". The ordinary case after a real spell of work on two machines
+     is several at once. Found 2026-09-09 by `study-hub-qa`, from the code.
+
+     🟢 Still serial: the continuation runs inside the previous lookup's `then`,
+     so there is never more than one request in flight, and `cardsBusy` still
+     guards each card individually. */
   function fillCards() {
     if (!cardsLoaded) return;
     var pending = cardItems().filter(function (it) {
       return !cards[String(it.id)] && !cardsBusy[String(it.id)];
     });
-    if (pending.length) { resolveCard(pending[0], false); }
+    if (pending.length) { resolveCard(pending[0], false, fillCards); }
   }
 
   /* ---------- R7: bookmarks ----------
@@ -10339,14 +10472,74 @@ What it adds when the server is there:
      arriving by yet another route. It also redraws the focus rectangles and
      recomputes which tables overflow, both of which the drag changes. */
 
-  var PANEL_W_MIN = 320, PANEL_W_MAX = 900, panelWidth = 440;
+  /* 🔴🔴 TWO WIDTHS, AND THE DISTINCTION IS THE WHOLE OF QA'S 2026-09-09 FINDING.
+     `wantedWidth` is what the READER ASKED FOR. `panelWidth` is what this
+     window can actually give them. They differ only in a window too narrow to
+     honour the ask, and that is exactly where they used to be conflated.
+
+     🔴 **THE DEFECT: one ArrowLeft on the grip in a 500px window POSTed 320 --
+     the clamp, not the ask -- and 320 is PERSISTED, so the width the reader had
+     chosen was gone for good.** The same keypress at 1400px correctly grew the
+     pane and saved 403. **ArrowLeft is the key that means WIDER**, so the reader
+     pressed "wider" and was permanently narrowed, with nothing said.
+
+     🔴 **AND THE SECOND HALF, which is why "just save the ask" is not enough:**
+     the resize handler re-applied from `panelWidth`, the already-clamped value,
+     so **widening the window back could never restore the choice** -- it
+     restored the clamp. It now re-applies from `wantedWidth`.
+
+     🟢 **THE RULE: a clamp is a RENDERING decision and must never reach the
+     stored value.** `applyPanelWidth` renders and touches nothing else;
+     `askPanelWidth` is the only thing that moves the reader's preference. */
+
+  var PANEL_W_MIN = 320, PANEL_W_MAX = 900, panelWidth = 440, wantedWidth = 440;
+
+  function fixedW(w) {
+    /* The bounds that do NOT depend on this window: a preference clamped to
+       these is still the reader's own choice, and is the same number on every
+       machine they open the lesson on. */
+    return Math.max(PANEL_W_MIN, Math.min(PANEL_W_MAX, Math.round(w)));
+  }
 
   function clampW(w) {
     /* The server clamps too, but only against fixed bounds: it cannot see which
        machine this is. Leaving 240px of lesson is what stops a width that suits
-       the Mini from swallowing the MacBook. */
+       the Mini from swallowing the MacBook.
+       ⚠️ THIS IS THE VIEWPORT-DEPENDENT ONE. Its answer is about the window in
+       front of the reader right now, so it renders and is never stored. */
     var room = Math.max(PANEL_W_MIN, window.innerWidth - 240);
     return Math.max(PANEL_W_MIN, Math.min(Math.min(PANEL_W_MAX, room), Math.round(w)));
+  }
+
+  function askPanelWidth(w) {
+    /* The reader asked for this width. Record it as their preference, then show
+       them as much of it as the window allows. */
+    wantedWidth = fixedW(w);
+    applyPanelWidth(wantedWidth);
+  }
+
+  function adoptPanelWidth(settings) {
+    /* 🔴 THE STORED WIDTH IS AN ASK, NOT A RENDERING: it must land in
+       `wantedWidth`, so that opening a lesson in a small window does not
+       quietly demote the reader's preference to that window's minimum and then
+       persist it on their next touch of the grip.
+       🟢 A NAMED function rather than three lines inside the settings callback,
+       so a test can call the shipped code: a sweep found this line unreachable
+       from any test and therefore unguarded. */
+    if (!settings || !settings.panelWidth) return;
+    if (settings.panelWidthMin) PANEL_W_MIN = settings.panelWidthMin;
+    if (settings.panelWidthMax) PANEL_W_MAX = settings.panelWidthMax;
+    askPanelWidth(settings.panelWidth);
+  }
+
+  function refitPanelWidth() {
+    /* The window changed size, so re-render the reader's ASK against the new
+       room. 🔴 FROM `wantedWidth`, NOT `panelWidth`: re-applying the
+       already-clamped value means a window that gets wider again can never give
+       the reader back the width they chose, it hands them the clamp for ever.
+       🟢 A NAMED function rather than a closure on the listener, so a test can
+       call the shipped code instead of a copy of it. */
+    applyPanelWidth(wantedWidth, true);
   }
 
   function applyPanelWidth(w, quiet) {
@@ -10360,11 +10553,14 @@ What it adds when the server is there:
 
   function savePanelWidth() {
     /* Only this key: write_settings defaults every other field from what is on
-       disk, so a width save cannot clobber the palette. */
+       disk, so a width save cannot clobber the palette.
+       🔴 `wantedWidth`, NEVER `panelWidth`. Storing the rendered width is the
+       defect this pair exists for: in a narrow window it writes the machine's
+       minimum over a width the reader chose, permanently. */
     return api('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ panelWidth: panelWidth })
+      body: JSON.stringify({ panelWidth: wantedWidth })
     }).catch(function () { S.toast('The pane width was not saved.'); });
   }
 
@@ -12144,7 +12340,7 @@ What it adds when the server is there:
       if (!document.documentElement.classList.contains('sv-dragging')) return;
       /* The pane is docked to the right edge, so its width is whatever is to the
          right of the pointer. */
-      applyPanelWidth(window.innerWidth - e.clientX);
+      askPanelWidth(window.innerWidth - e.clientX);
     });
     function end(e) {
       if (!document.documentElement.classList.contains('sv-dragging')) return;
@@ -12160,14 +12356,18 @@ What it adds when the server is there:
 
     /* The pane grows leftwards, so Left makes it bigger. */
     g.addEventListener('keydown', function (e) {
+      /* 🔴 STEPPING FROM `wantedWidth`, NOT FROM THE RENDERED WIDTH. In a
+         window too narrow to honour the preference the rendered width IS the
+         clamp, so stepping from it would compute the ask from the machine's
+         minimum and store that -- the defect arriving by the other door. */
       var step = e.shiftKey ? 96 : 24, w = null;
-      if (e.key === 'ArrowLeft')  w = panelWidth + step;
-      else if (e.key === 'ArrowRight') w = panelWidth - step;
+      if (e.key === 'ArrowLeft')  w = wantedWidth + step;
+      else if (e.key === 'ArrowRight') w = wantedWidth - step;
       else if (e.key === 'Home')  w = PANEL_W_MIN;
       else if (e.key === 'End')   w = PANEL_W_MAX;
       if (w === null) return;
       e.preventDefault();
-      applyPanelWidth(w);
+      askPanelWidth(w);
       savePanelWidth();
     });
     return g;
@@ -12180,7 +12380,7 @@ What it adds when the server is there:
     /* A width that fitted the other Mac may not fit this one, and the window can
        be resized after the fact, so re-clamp rather than trusting what was
        stored. Quiet, because setPanelSpace already runs on resize. */
-    window.addEventListener('resize', function () { applyPanelWidth(panelWidth, true); });
+    window.addEventListener('resize', refitPanelWidth);
   }());
   panel.querySelector('[data-bmchat]').addEventListener('click', toggleChatBookmark);
   panel.querySelector('[data-close]').addEventListener('click', closePanel);
@@ -12346,8 +12546,9 @@ What it adds when the server is there:
 
   /* ---------- settings ----------
 
-     In notes/settings.json, not the machine config, so both Macs get the same
-     preferences through Dropbox and nothing in there is a secret. The model name
+     In notes/settings.json, not the machine config, so every machine sharing
+     the courses folder gets the same preferences and nothing in there is a
+     secret. The model name
      reaches a subprocess argv, so the server keeps an allowlist; this is only
      the picker for it. */
 
@@ -12375,9 +12576,9 @@ What it adds when the server is there:
       '<select id="svPSize"></select>' +
       '<div class="hint">Applies to both the chat panel and the notes panel.</div></div>' +
     /* R40. The notes panel's footer carried six controls under the highlight
-       list: Restore from disk, Export .md, For The Box, Copy, Import, Clear
-       all. None of them is used while reading, and one of them wipes every
-       highlight in the lesson, which is the worst thing to leave a mis-tap
+       list: Restore from disk, Export .md, a copy-for-the-vault button, Copy,
+       Import, Clear all. None of them is used while reading, and one of them
+       wipes every highlight in the lesson, which is the worst thing to leave a mis-tap
        away from a note. They move in here as a group; the footer goes.
 
        Moved, not rebuilt. The lesson's own handlers are bound to those exact
@@ -12391,8 +12592,8 @@ What it adds when the server is there:
         'with <code>-cards</code>, <code>-bookmarks</code> and <code>-chats</code> beside it. ' +
         'Point any tool, or your own Claude, at that folder to sync them anywhere. ' +
         'None of these buttons is needed for ordinary reading.</div></div>' +
-    /* R39: the floating "The Box: ready" pill lived here instead. It was the
-       last free-floating affordance on the page, and he asked for it to go into
+    /* R39: the floating "<vault name>: ready" pill lived here instead. It was
+       the last free-floating affordance on the page, and he asked for it to go into
        the menu, on the desktop as well as the phone. The button itself moves in
        below, rather than being copied, so there is still one of it. */
     /* Named from the config like the badge is, so a recipient's Settings says
@@ -12403,7 +12604,7 @@ What it adds when the server is there:
       '<div data-vaultslot></div>' +
       '<div class="hint" id="svVaultHint"></div></div>' +
     '<div><label class="lab">All your courses</label>' +
-      '<a class="sv-homelink" href="/home">The modules on this machine</a>' +
+      '<a class="sv-homelink" href="/home">The modules on ' + esc(hostWord()) + '</a>' +
       '<div class="hint">One card per module, with where you left off in each. ' +
         'Also <a href="notebook">everything you have marked on this course</a>.</div></div>' +
     '<div><label class="lab">The server</label>' +
@@ -12480,11 +12681,7 @@ What it adds when the server is there:
       }
       setBox.querySelector('.where').textContent =
         'Saved in ' + (settings.path || 'notes/settings.json');
-      if (settings.panelWidth) {
-        if (settings.panelWidthMin) PANEL_W_MIN = settings.panelWidthMin;
-        if (settings.panelWidthMax) PANEL_W_MAX = settings.panelWidthMax;
-        applyPanelWidth(settings.panelWidth);
-      }
+      adoptPanelWidth(settings);
       /* 🔴 `=== true`, not truthiness, and not `||`. The settings response
          carries this key ALWAYS, and an absent or malformed one must read as
          OFF rather than as "leave whatever is in the variable": a reader who
@@ -13461,7 +13658,7 @@ What it adds when the server is there:
   /* ---------- marks on disk ----------
 
      localStorage is a cache from here on. The file in notes/ is the copy that
-     is in Dropbox, is backed up, and carries the anchors, so a wiped browser
+     lives on disk, is backed up, and carries the anchors, so a wiped browser
      profile costs nothing. The vault note cannot do this job: it is a readable
      publication with the offsets thrown away. */
 
@@ -14908,7 +15105,7 @@ What it adds when the server is there:
       missing++;
       a.classList.add('sv-xref-gone');
       a.setAttribute('aria-disabled', 'true');
-      a.setAttribute('title', 'This lesson is not on this machine. It is part of '
+      a.setAttribute('title', 'This lesson is not on ' + hostWord() + '. It is part of '
         + 'the same course, and whoever shared this one did not share it.');
     });
     if (!missing) return;
@@ -14919,7 +15116,7 @@ What it adds when the server is there:
       if (!a) return;
       ev.preventDefault();
       try {
-        S.toast('That lesson is not on this machine. Ask whoever shared this one '
+        S.toast('That lesson is not on ' + hostWord() + '. Ask whoever shared this one '
                 + 'for "' + (a.textContent || '').trim().slice(0, 40) + '".');
       } catch (e) {}
     });
@@ -15058,8 +15255,8 @@ What it adds when the server is there:
      parent, and a listener travels with the node, so the behaviour is
      identical by construction rather than by being kept in step.
 
-     One was dropped rather than moved and is now GONE: "For The Box" copied a
-     markdown blob to the clipboard for him to paste into the vault by hand, in
+     One was dropped rather than moved and is now GONE: the copy-for-the-vault
+     button put a markdown blob on the clipboard to paste in by hand, in
      the old one-note-per-WEEK shape. The layer has published to the vault
      automatically since the badge was built, 1.3s after any change, into the
      per-topic note. So the button was not merely redundant, it produced the
@@ -15085,8 +15282,8 @@ What it adds when the server is there:
      guard cannot be added from outside. `window.confirm` takes no input, so the
      lesson's own handler can only ever ask a yes/no question; and wrapping that
      handler would have produced two dialogs in a row, this one and then its
-     own. So the lesson's button is hidden the way "For The Box" is, and this
-     replaces it.
+     own. So the lesson's button is hidden the way the copy-for-the-vault one
+     is, and this replaces it.
 
      The clearing itself still goes through the lesson: `S.replaceMarks` is the
      surface it exposes for exactly this, the same one Import and Restore use,

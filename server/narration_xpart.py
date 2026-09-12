@@ -2,9 +2,10 @@
 """Narration that belongs to a DIFFERENT part of the same course.
 
 Promoted from the one-off `_admin/work/transcript-contamination/xpart.py`, which
-found all four `7PAYCAMD` cases with zero misses and zero false positives against
-an answer set established independently by OCR. **The logic is unchanged; what is
-new is that it has tests and the ingest sweep runs it.**
+found all four cases in the course it was written for, with zero misses and
+zero false positives against an answer set established independently by OCR.
+**The logic is unchanged; what is new is that it has tests and the ingest sweep
+runs it.**
 
 🔴 **THERE ARE TWO CLASSES AND ONLY ONE HAS A PUNCTUATION TELL.** An APPENDED
 splice joins with no space (`...address.So, we've got...`); a REPLACED one is

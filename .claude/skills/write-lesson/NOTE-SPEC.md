@@ -559,6 +559,53 @@ reports it now: `lesson outlines  partial (0 of 38)`.
 Navigation quirks ("this deck's footers say Topic 4") are not provenance and
 belong wherever the course's own notes live, where they are actionable.
 
+## F2. Core ideas, for a topic and for a week
+
+**A second artefact, and it is not a lesson and not a summary.** A reader who
+reads it INSTEAD of the lessons must end up knowing less, not more, or the
+feature is worse than nothing.
+
+### What it is
+
+**The two or three things a reader should still know in a year, stated as claims.**
+
+> 🟢 **A core idea**: *"Attachment classification predicts less than it is usually credited with."*
+> 🔴 **A heading**: *"Attachment classification."*
+
+**The test is whether it can be WRONG.** A claim can be argued with; a heading
+cannot. If a line could sit in a table of contents, it is not a core idea.
+
+### The four rules
+
+1. 🔴 **Written AFTER the parts, never before.** Written first it becomes a plan, and the lessons
+   get written to fit it. **This is an ordering rule for the ingest skills, not advice.**
+2. 🔴 **It may say the topic does not cohere, and sometimes it must.** Some topics are three
+   unrelated lectures behind one name. **A panel that manufactures a through-line for them is the
+   confident wrongness this project treats as its worst failure**, and it is worth more to a reader
+   to be told the seam is real.
+3. 🔴 **A week's core ideas are not the concatenation of its topics'.** If a week cannot say
+   something none of its topics can, **it should not have one at all.** The week level exists for
+   the claim that only appears when the topics are put side by side.
+4. 🟢 **No core ideas, no pill.** An unwritten one shows nothing rather than an empty panel.
+
+### Where it lives, and whether it travels
+
+| | |
+| --- | --- |
+| topic | `courses/<CODE>/W2-T3-core-ideas.md` |
+| week | `courses/<CODE>/W2-core-ideas.md` |
+| convention followed | the existing `<DOC>-outline.md` naming, beside the lessons |
+| exported? | 🟢 **YES, in the course pack** (`<CODE>.course.json`) |
+
+⚠️ **Note the asymmetry with outlines**: **an outline is a working document and is
+exported by NOTHING. Core ideas are reader-facing content and travel.** Same
+file convention, opposite export decision. A pill that only appears on the
+machine that wrote it is invisible to everyone you share the course with, which
+is the audience the course pack exists for.
+
+**Plain prose, in paragraphs.** The panel renders a deliberately small subset of
+markdown; write paragraphs and let the claims carry the structure.
+
 ## G. House style
 
 - 🔴 **No em dashes, anywhere, ever.** Commas, parentheses, colons, or two

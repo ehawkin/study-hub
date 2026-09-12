@@ -297,10 +297,110 @@ def cap_outlines(ctx):
     return Row("lesson outlines", len(docs), served, note)
 
 
+def cap_recording_ids(ctx):
+    """Every lecture's recording id belongs to that lecture alone.
+
+    🔴 **THE DEFECT THIS EXISTS FOR.** Two parts of one course shared a single
+    Kaltura entry id, so **the reader had been serving `W1-T3-P1`'s lecture to
+    anybody who opened `W1-T3-P2`**, for as long as the file had been wrong.
+    **Nothing anywhere compared the ids**, and it surfaced only because a
+    download run's byte count disagreed with `materials.json` — a check written
+    for a different purpose entirely.
+
+    ⚠️ **A wrong recording is not a broken page.** The lecture plays, the
+    controls work, the page looks perfect, and it is the wrong lecture. That is
+    why this is worth a row of its own rather than a note somewhere: it is
+    invisible from every direction except this one.
+
+    🔴 **It also names any LOCAL copy sitting under a duplicated id**, and that
+    half is not decoration. The reader prefers a downloaded file over the
+    stream, so correcting the id in `materials.json` **leaves the wrong lecture
+    playing** until the file is deleted too. A check that reported only the
+    data would send somebody away believing they had fixed it.
+
+    🟢 `served` counts the ids that are unique, so a clean course reads
+    `ok` with the count, and a course with none reads `none` rather than
+    `ok` — an unmeasurable answer must not look like a good one.
+    """
+    docs = {}
+    try:
+        raw = json.loads((S.materials_path(ctx["cfg"]))
+                         .read_text(encoding="utf-8"))
+        docs = raw.get("docs", {}) or {}
+    except (OSError, ValueError):
+        return Row("recording ids are unique", 0, 0,
+                   "UNCHECKED, not clean: this course has no readable "
+                   "materials.json")
+    owned = {}
+    for doc, row in sorted(docs.items()):
+        entry = str((row or {}).get("entry") or "").strip()
+        if entry:
+            owned.setdefault(entry, []).append(doc)
+    if not owned:
+        return Row("recording ids are unique", 0, 0,
+                   "this course records no recording ids: its lectures are "
+                   "narrated packages or plain links")
+    shared = {e: d for e, d in owned.items() if len(d) > 1}
+    served = sum(len(d) for e, d in owned.items() if len(d) == 1)
+    total = sum(len(d) for d in owned.values())
+    if not shared:
+        # 🟢 A POSITIVE RESULT. A check that is silent on success is one whose
+        # absence nobody notices, and this row's whole value is being readable
+        # on a course nobody has looked at.
+        return Row("recording ids are unique", total, served,
+                   "all %d ids are distinct" % len(owned))
+
+    # 🔴🔴 WHICH SHARER IS WRONG IS A SEPARATE QUESTION, AND NAMING BOTH IS
+    # WORSE THAN NAMING NEITHER. The first version of this row said "delete
+    # W1-T3-P1.mp4, W1-T3-P2.mp4", which includes the CORRECT lecture:
+    # following the message would have destroyed the good copy. A message that
+    # points at a harmful recovery is worse than one that says less.
+    #
+    # 🟢 The recorded size settles it, and it is already on disk. At scrape
+    # time the two docs had DIFFERENT `media_bytes`, so whichever doc's
+    # recorded size matches the downloaded file is the id's rightful owner and
+    # the other one's id is the mis-assigned one. Where the sizes cannot
+    # settle it, this says so instead of guessing.
+    folder = ctx["folder"]
+    wrong, unsure = [], []
+    for entry, sharers in sorted(shared.items()):
+        for doc in sharers:
+            for sub, ext in (("videos", ".mp4"), ("audio", ".m4a")):
+                path = folder / sub / (doc + ext)
+                if not path.is_file():
+                    continue
+                if ext != ".mp4":
+                    continue          # only the video's size is recorded
+                try:
+                    recorded = int((docs.get(doc) or {}).get("media_bytes"))
+                except (TypeError, ValueError):
+                    unsure.append(doc)
+                    continue
+                if recorded != path.stat().st_size:
+                    wrong.append(doc)
+    note = "%d id(s) shared: %s" % (
+        len(shared),
+        "; ".join("%s on %s" % (e, " and ".join(d))
+                  for e, d in sorted(shared.items())[:3]))
+    if wrong:
+        named = sorted(set(wrong))
+        note += ("; a LOCAL copy wins over the stream, and %s %s another "
+                 "lecture under %s own name: delete the .mp4 and the .m4a "
+                 "after correcting the id"
+                 % (", ".join(named[:4]),
+                    "holds" if len(named) == 1 else "hold",
+                    "its" if len(named) == 1 else "their"))
+    if unsure:
+        note += ("; cannot say which copy is wrong for %s (no recorded size to "
+                 "compare), so delete nothing there on this row's word"
+                 % ", ".join(sorted(set(unsure))[:4]))
+    return Row("recording ids are unique", total, served, note)
+
+
 def cap_narration_unique(ctx):
     """No part's narration carries another part's words.
 
-    🔴 **THE DEFECT THIS EXISTS FOR.** Four of `7PAYCAMD`'s 450 narrated slides
+    🔴 **THE DEFECT THIS EXISTS FOR.** Four of one course's 450 narrated slides
     carried narration belonging to a different part, **every one at the SAME
     slide index in both parts, four for four**. That is a mechanism rather than a
     coincidence: the fetch keyed on slide index and let a previous part's
@@ -405,7 +505,7 @@ def cap_identity(ctx):
 
 
 CAPABILITIES = (cap_region_pictures, cap_local_materials, cap_packages,
-                cap_narration_unique,
+                cap_recording_ids, cap_narration_unique,
                 cap_outlines, cap_readings, cap_identity)
 
 

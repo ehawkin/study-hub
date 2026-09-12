@@ -6,13 +6,14 @@ a CSS selector and the server numbers them with an HTMLParser, and an edit is
 refused whenever the two disagree. This re-implements the page's rule
 independently rather than calling the server's, so agreement means something.
 """
-import sys, pathlib, re, json, shutil, os, html as html_mod
+import sys, pathlib, re, json, shutil, os, argparse, html as html_mod
 from html.parser import HTMLParser
 
 # 🔴 Derived, never hardcoded. This file ships inside the kit (plan 02 §9) as the
-# gate the writing skill runs, so an absolute path into one person's Dropbox made
-# it unrunnable for everyone else. The script lives in <repo>/server/, so the repo
-# is its parent's parent, whatever anybody called the folder.
+# gate the writing skill runs, so an absolute path into one person's synced
+# folder made it unrunnable for everyone else. The script lives in
+# <repo>/server/, so the repo is its parent's parent, whatever anybody called
+# the folder.
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "server"))
 import study_server as S
@@ -65,15 +66,52 @@ def default_module_dir(repo):
 
 # `--notes <dir>` points the sweep at a copy, which is how the content/reader
 # split was verified before anything of his was touched. Default is his own.
-NOTES_DIR = default_module_dir(ROOT)
-if "--notes" in sys.argv:
-    NOTES_DIR = pathlib.Path(sys.argv[sys.argv.index("--notes") + 1]).expanduser().resolve()
-    print("notes: %s" % NOTES_DIR)
+#
+# 🔴 argparse, and NOT a hand-rolled `sys.argv` scan, from a measured wrong
+# answer rather than from tidiness. This read `if "--notes" in sys.argv` until
+# 2026-09-09, so ANY OTHER FLAG WAS SILENTLY IGNORED: a sweep asked for one
+# course, by a flag this script does not have, swept the CONFIGURED course
+# instead. It printed 389 DOIs where the right scope holds 213 and raised a
+# section-B3 hit naming a file that exists only in the other course, and it
+# finished with ALL CHECKS PASS.
+# ⚠️ Every number that run printed was TRUE. They were about the wrong subject,
+# and a wrong-scope pass is indistinguishable from a right-scope pass. This is
+# the one gate whose output everybody else stops checking, so a silent mis-scope
+# here retires the suspicion that would otherwise have caught the thing.
+# 🟢 argparse refuses an unknown flag for free, and its usage line names the
+# flags that do exist, which is the half a refusal owes the person refused.
+PARSER = argparse.ArgumentParser(
+    prog="verify_notes.py",
+    description="Verification sweep over one course's lessons.")
+PARSER.add_argument("--notes", metavar="DIR",
+                    help="the course directory to sweep; the default is the "
+                         "configured course")
+PARSER.add_argument("--dois", action="store_true",
+                    help="also ask Crossref whether each DOI is the paper it "
+                         "is labelled with (needs the network, about a minute)")
+OPTS = PARSER.parse_args()
+
+#
+# ⚠️ `.resolve()` applies to BOTH routes, and that is about the printed line
+# rather than about finding files. The flag used to resolve and the configured
+# default did not, so one directory had two spellings depending on how you got
+# there - and on this platform they differ by a symlinked prefix. A scope line
+# whose spelling depends on the route is a scope line two runs cannot be
+# compared with, which is the one job it has.
+NOTES_DIR = (pathlib.Path(OPTS.notes).expanduser() if OPTS.notes
+             else default_module_dir(ROOT)).resolve()
 
 # Lessons are recognised by carrying a lesson-meta block rather than by their
 # filename, so this sweep works on a course that does not number its parts the
 # way this module does. See split_lessons.is_lesson_file.
 NOTES = SPLIT.lessons_in(NOTES_DIR)
+
+# 🔴 On EVERY run, not only when the directory was named on the command line.
+# The old print sat INSIDE the `if`, so the DEFAULT run - the one whose scope
+# comes from a config file the reader never opens - was the one run that said
+# nothing at all about what it had read. That is the silent half of the same
+# defect: the scope you did not choose is the scope you most need told.
+print("swept: %s (%d lessons)" % (NOTES_DIR, len(NOTES)))
 
 # 🔴 After the content/reader split a lesson file is content only, and the page
 # the browser numbers is the composed one. So the page rule runs on what the
@@ -189,7 +227,7 @@ B3 = [
 # 🔴 And it used to implement about HALF of even that bullet. `lecture`, `video`,
 # `transcript` and `summary slide` were all absent while `lecturer` was present,
 # which is exactly why nobody saw it: the word is in the regex, attached to a
-# different rule, so the rule looked covered. A first draft of a 7PAYCAMD lesson
+# different rule, so the rule looked covered. A first draft of one lesson
 # carried "the lecture" 17 times and this scan printed `total: 0`; two lessons
 # had already shipped with one each, waved through on every run since they
 # landed. Found 2026-09-09 by `study-hub-content` while writing W5-T3-P2.
@@ -342,7 +380,17 @@ print("  em dashes:", em or "none")
 if em:
     fails.append("em dashes")
 
-print("\n=== spec section B3 scan (expect exactly 1, the protected sentence) ===")
+# 🔴 NO EXPECTED COUNT, and this header carried one until 2026-09-09: "expect
+# exactly 1, the protected sentence". That number is only ever right for ONE
+# course. It reads as a property and it was a pin on a situation: the second
+# course here has 0, and a third has a number nothing in this file can know.
+# ⚠️ Worse than stale, it left a SLOT. A reader who checks `total` against the
+# header and never reads WHICH sentence sees the 1 and stops. Measured on this
+# repo: the protected sentence had been edited away, a NEW hit took the vacant
+# slot, and the run was read as clean because the number still said 1.
+# 🟢 So the header sends the reader to the LINES. Each hit is printed above.
+print("\n=== spec section B3 scan (no expected count; read the lines, not the "
+      "total) ===")
 n3 = 0
 for p in NOTES:
     for b in S.find_blocks(p.read_text()):
@@ -582,7 +630,7 @@ print("  %d files checked, %d with errors" % (len(JS_FILES), ncss))
 # Off by default because it takes about a minute and the rest of this script is instant.
 # A DOI that RESOLVES proves nothing: 8 of the 95 in these notes resolved to the wrong
 # paper, each one a few digits off, which is what a constructed identifier looks like.
-if "--dois" in sys.argv:
+if OPTS.dois:
     import json, urllib.request, urllib.parse, time, unicodedata, collections
 
     # NFD strips accents, but two families of character survive it and produced three
@@ -723,8 +771,8 @@ if "--dois" in sys.argv:
     # correction on purpose cites the article beside it, which is what
     # NOTE-SPEC's `corrnote` convention says; a writer holding the wrong record
     # cites only the wrong record, because they believe it is the article.
-    # Measured on the first real run over 7PAYCAMD: without this the Asperger
-    # correction in W4-T2-P1 reads as a defect and is not one.
+    # Measured on the first real run over a whole course: without this the
+    # Asperger correction in W4-T2-P1 reads as a defect and is not one.
     alone = [(d, w, l, SHADOW.companion_cited(d, r, titles)) for d, w, l, r in shadows]
     flagged = [x for x in alone if not x[3]]
     paired = [x for x in alone if x[3]]
@@ -749,5 +797,10 @@ if "--dois" in sys.argv:
         print("  🟢 deliberate  %s is a stand-in, and %s (the paper itself) is "
               "cited too" % (doi, mate))
 
-print("\n" + ("FAILURES: " + "; ".join(fails) if fails else "ALL CHECKS PASS"))
+# 🔴 The scope goes on the line ABOVE the verdict, never appended to it. The
+# verdict line is PARSED - `FAILURES: a; b` is split on the semicolons - so it
+# has to stay last and stay exactly what it was. Beside the verdict is what was
+# asked for, and the line above is beside.
+print("\nswept: %s (%d lessons)" % (NOTES_DIR, len(NOTES)))
+print(("FAILURES: " + "; ".join(fails)) if fails else "ALL CHECKS PASS")
 sys.exit(1 if fails else 0)

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """A course's whole shape as a spreadsheet: one row per part, nothing decided.
 
-    python3 server/export_materials.py --module 7PAYCAMD
-    python3 server/export_materials.py --module 7PAYCAMD --out ~/Desktop/camd.csv
-    python3 server/export_materials.py --module 7PAYCAMD --no-words   # skip the PDF scan
+    python3 server/export_materials.py --module PSY101
+    python3 server/export_materials.py --module PSY101 --out ~/Desktop/course.csv
+    python3 server/export_materials.py --module PSY101 --no-words   # skip the PDF scan
 
 **EH's ask, 2026-09-09**, while reading the ingest prompt written for a friend:
 a table of every lesson, week, topic and part, the length of each video, and a
@@ -30,8 +30,9 @@ regenerated on demand and nothing anywhere reads the CSV back in.
 - 🔴 **A part with something missing still gets a ROW, with an empty cell.** A
   missing row hides a gap, which is the failure this table exists to expose.
 - ⚠️ **`combined` says when `slides` and `transcript` point at the SAME url**,
-  which is the combined-handout case (7PAYCAMD publishes both inside one weekly
-  package). Without that column the duplication reads as a bug in this script.
+  which is the combined-handout case: **a course can publish its deck and its
+  transcript inside one weekly package**, and one course onboarded here does.
+  Without that column the duplication reads as a bug in this script.
 - 🟢 **Extractable word counts for each local PDF**, which is the cheapest
   possible check that the OCR pass did anything: a transcript for a 15-minute
   lecture showing 100 words is obvious in a column and invisible everywhere

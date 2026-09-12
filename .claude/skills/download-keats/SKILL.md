@@ -307,6 +307,48 @@ born-digital text is left alone). Originals are kept in `backups/` beside the
 files. `--check` first if you want to see what it would do. Report what it
 rotated and what it re-read, from its own output.
 
+## 🔴 NEVER GLOB A SLIDES DIRECTORY BY EXTENSION
+
+A package's slide export mixes image formats **within one deck**, and a glob on
+one extension collects part of it and says nothing. Measured on a real course:
+**27 of 34 parts mix `.jpg` and `.png`**, and in the early weeks the `.png` is
+the majority, so `Slide*.jpg` collected **3 files out of 21** on one part. No
+error, no warning, a shorter deck, and the slide it dropped was content.
+
+🔴 **Widening the glob to `*.{jpg,png}` is NOT the fix.** It treats this course
+and leaves the mechanism: the next export writes a `.jpeg` or a `.webp` and it
+fails again the same silent way, **in the direction that reads as success**.
+
+🟢 **Ask for the files instead of guessing their names:**
+
+```
+python3 server/slide_files.py <CODE> <DOC>
+```
+
+It prints every numbered slide, in slide order, one path per line, so it goes
+where a glob would have gone. **A slide is recognised by its numbering
+(`SlideNN.<anything>`), never by a list of extensions**, and anything in the
+directory that is not a numbered slide is named in the result rather than
+quietly skipped. It also reports holes in the numbering, and it REFUSES on a
+directory that does not exist rather than reporting an empty deck as a clean one.
+
+**If you already have a glob in a script, make it prove itself:**
+
+```
+python3 server/slide_files.py <CODE> <DOC> --check-glob 'Slide*.jpg'
+```
+
+Non-zero exit, naming every file the glob would miss. 🟢 **And before you start
+a course, look at the whole of it:**
+
+```
+python3 server/slide_files.py <CODE> --course
+```
+
+One line per part with its extension tally, and a closing count of how many
+parts a single-extension glob would be wrong for. It says that number even when
+it is zero, so a course nobody has checked reads differently from a clean one.
+
 ## Consolidated PDFs, which are standard rather than an extra
 
 🟢 **Build these by default.** They are turned OFF rather than on, and the
@@ -374,6 +416,23 @@ strangely.)
    their own week and every later writer inherits the guess.** A part with none is
    worth naming out loud, because it usually means the citations are in an image
    the text layer never saw.
-4. Point at **write-lesson** as the next step, and say that a course with
+5. 🔴 **Report, per TOPIC, whether the topic ends in a References slide**, and
+   name the topics that do not. ⚠️ **Per topic, not per part**: the slide exists
+   at the topic's level, so reporting it per part would imply each part carries
+   its own and is simply false.
+
+   🔴 **This is the other half of the line above and it is the half that decides
+   how the count is read.** A part reporting zero citations is not necessarily a
+   part with no sources: **its sources may be listed on the last slide of its
+   topic.** Without this line a writer cannot tell "nothing anywhere" from
+   "collected at the end", and will guess **in both directions, part by part**.
+   On the course this was measured against (2026-09-08), **15 of 34 parts sat
+   under a topic with a full References slide**, so it is the common case rather
+   than an edge one.
+
+   🟢 **Say it even when the answer is none**, the way every other count here is
+   said: a topic nobody checked and a topic with no References slide must not
+   read the same.
+6. Point at **write-lesson** as the next step, and say that a course with
    materials but no lessons still shows up on the home page, with nothing to
    read yet.

@@ -319,6 +319,31 @@ It merges rather than overwrites, aliases abbreviations so both halves of
 "Short-chain fatty acids (SCFAs)" resolve, and a second run is a no-op. Run it
 with the lesson files you just wrote, read the count it prints, and say it.
 
+## Core ideas, when the topic is finished and not before
+
+A topic's parts are written one at a time; its **core ideas** are written once,
+after the last one. See NOTE-SPEC section F2 for what a core idea is and what
+separates it from a heading.
+
+```
+courses/<CODE>/W2-T3-core-ideas.md      the topic
+courses/<CODE>/W2-core-ideas.md         the week
+```
+
+**The ordering is the rule, not a preference.** Written before the parts it
+becomes a plan, and the lessons then get written to fit it, which is how a
+topic ends up with a through-line it never had. So: **a topic is not finished
+until its parts are, and its core ideas are the last thing written.**
+
+🔴 **Writing nothing is a correct outcome and is often the right one.** A week
+earns a file only if it can say something none of its topics can; a topic whose
+lectures do not cohere should say so rather than have a through-line invented
+for it. There is no empty panel to avoid: a unit with no file shows no pill at
+all.
+
+Plain paragraphs. The panel renders a small subset of markdown, so let the
+claims carry the structure rather than bullets or tables.
+
 ## Finishing
 
 - Reload the page in the reader and look at it. Read the first screen, open a
@@ -328,6 +353,9 @@ with the lesson files you just wrote, read the count it prints, and say it.
 - Confirm the outline is there: `python3 server/verify_course.py <CODE>` should
   say `lesson outlines  ok`. It is the deliverable most easily forgotten, because
   nothing in the reader shows it and nothing breaks visibly without it.
+- If this part completed a topic, write that topic's core ideas now, per the
+  section above, or say plainly that the topic does not cohere well enough to
+  have any. Either is a finished topic; neither is silence.
 - Say what you actually ran and what it said. If you skipped the verifier
   because the network was down, say that too, rather than reporting a pass that
   did not happen.
