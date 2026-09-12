@@ -220,3 +220,11 @@ python3 server/study_server.py
 Then open <http://127.0.0.1:8795/>. The skills in `.claude/skills/` are written
 as instructions, so they read perfectly well as documentation for doing it by
 hand.
+
+## The licence
+
+This software is under the PolyForm Strict License 1.0.0. The full text is in
+`LICENSE.md` beside this file, and the official copy is at
+<https://polyformproject.org/licenses/strict/1.0.0>. It permits use for any
+noncommercial purpose, other than distributing the software or making changes
+or new works based on it.

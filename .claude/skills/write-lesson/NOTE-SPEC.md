@@ -286,6 +286,72 @@ at the end measures a draft; a scan run in the middle changes the one still bein
 written. Topics whose early parts were scanned before the later parts were written
 have come back clean on the first build; topics scanned only at the end have not.
 
+## B4. Independent expression: never carry the source's sentences
+
+A lesson is our account of the material, not a reworded copy of somebody's
+explanation of it. This is a separate requirement from B and neither implies the
+other: a page can name no lecturer and no slide and still be a close paraphrase
+from end to end.
+
+### The order of operations
+
+Change the ORDER first. Change the STRUCTURE second. Change the WORDS third and
+least.
+
+This is substantive rather than stylistic. What an author contributes is the
+selection: which fact leads, what is subordinated to what, where the emphasis
+falls, what is left out. Swapping words while keeping the sentence's skeleton is
+the weakest move available, because it changes what is easy to detect without
+changing what was actually taken.
+
+### Keep the terms. Keep the facts. Change the architecture.
+
+**Never replace a term of art.** "Low resting heart rate", "escape-avoidance
+paradigm", "monozygotic", "anti-correlated": these belong to the field, not to
+the person being rewritten. Replacing one makes the lesson less accurate and
+harder to search, and protects nothing.
+
+**Facts are not ownable either.** Names, dates, percentages, which countries a
+finding replicates in. If a sentence carries only a fact, compression is the only
+change available and it is enough.
+
+### The test that produces a rewrite rather than a paraphrase
+
+Read the source. Look away from it. Write what it means.
+
+Editing the original sentence in place yields a paraphrase however many words are
+changed, because the structure is what survives the edit.
+
+### Three treatments, not one
+
+| What it is | Treatment |
+| --- | --- |
+| the author's own explanation | rewrite, per the order of operations above |
+| a published standard: diagnostic criteria, a formal definition | **do not reword.** The exact words are the instrument, and a reworded criterion is a wrong criterion. Quote it, and attribute it to the classification or paper it comes from |
+| a bare fact | leave, or compress. Nobody owns a fact |
+
+A *construct definition* is a concept rather than an instrument, so it is a
+rewrite rather than a quotation. And do not go and fetch an external standard's
+wording in order to quote that instead: it swaps a small problem for a larger one
+with a different rights holder.
+
+### Write plainly
+
+A rewrite is not a licence to perform. No inverted sentences for emphasis, no
+metaphor where a plain verb works, no aphorism standing in for the finding. State
+it in the order it happens.
+
+### Log every rewrite
+
+Record each one alongside the course's working notes: the source sentence, the
+text before, the text after, and the date.
+
+A rewrite changes prose that was already checked for accuracy. If a lesson is
+later found to say something slightly wrong, the first question is whether the
+rewrite did it, and that cannot be answered without all three together. Name any
+term kept deliberately, or a later reader will treat it as a missed edit.
+
+
 ## C. Structure
 
 Not a rigid template, but these earn their place and their absence should be
