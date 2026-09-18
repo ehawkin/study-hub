@@ -4,6 +4,7 @@
     python3 server/transcripts.py --self-test           # prove the parser can fire
     python3 server/transcripts.py --survey PSY101       # every package, blocks vs audio
     python3 server/transcripts.py --blocks PSY101 W1-T2-P1
+    python3 server/transcripts.py --videos             # embedded-video markers, every course
 
 🔴 **THIS RUNS AT GENERATION TIME AND IS NEVER IMPORTED BY THE SERVER.** The
 captions ship as data; a recipient gets `.vtt` files, not a transcription
@@ -83,12 +84,21 @@ neither answer is an error.
 """
 
 import argparse
+import collections
 import glob
 import os
 import re
+import shutil
 import subprocess
 import unicodedata
 import sys
+
+# The one local import, and it is a leaf with none of its own: the sentence that
+# says which of two transcript files for one part is CURRENT lives there, shared
+# with the server's side panel and the pack copier, which cannot import this
+# module (the server may never import it; see the docstring).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import material_names                                           # noqa: E402
 
 # 🔴 UNANCHORED, DELIBERATELY. See the trap above: any pattern tied to the start
 # of a line can be defeated by a form feed, and being tied to nothing cannot.
@@ -132,24 +142,35 @@ NO_AUDIO_LINE = re.compile(
     r"^([ \t\f]*)No Audio on this Slide\.?[ \t]*$", re.M | re.I)
 
 # 🔴🔴 THE SAME FACT IN A SECOND SPELLING, AND IT WAS A CAPTION IN 19 LESSONS.
-# A transcript built from a course page's per-slide text writes `(no narration)`
-# for a silent slide, and `NO_AUDIO_LINE` knew only the sentence above, so the
-# marker went to the aligner as two words it then had to put SOMEWHERE in the
-# audio. Measured 2026-09-16 across one course's 29 recordings: 54 markers fed
-# in, 32 cues showing them, two as a cue of their own and thirty spliced into
-# the middle of speech; and the last real words of two lectures were dragged
-# under the unconfirmed floor by the markers after them. Same rule as the
-# sentence: a line that is nothing but the marker is furniture.
-SILENT_SLIDE_LINE = re.compile(r"^([ \t\f]*)\(no narration\)[ \t]*$", re.M | re.I)
+# A transcript built from a course page's per-slide text writes a bracketed
+# marker for a silent slide, and `NO_AUDIO_LINE` knew only the sentence above,
+# so the marker went to the aligner as two words it then had to put SOMEWHERE
+# in the audio. Measured 2026-09-16 across one course's 29 recordings: 54
+# markers fed in, 32 cues showing them, two as a cue of their own and thirty
+# spliced into the middle of speech; and the last real words of two lectures
+# were dragged under the unconfirmed floor by the markers after them. Same rule
+# as the sentence: a line that is nothing but the marker is furniture.
+#
+# 🔴 TWO SPELLINGS, ON PURPOSE. The builder wrote `(no narration)` until
+# 2026-09-17 and writes `(silent slide)` since (the owner's word for the audio
+# is "narration", so a marker using it read as a claim about the recording).
+# The old arm stays because transcripts built BEFORE the rename are still on
+# disk and a caption can be rebuilt from any of them: a matcher that knew only
+# the new spelling would feed the old marker to the aligner again, which is the
+# defect measured above. Remove the old arm only when no document carries it.
+SILENT_SLIDE_LINE = re.compile(
+    r"^([ \t\f]*)\((?:no narration|silent slide)\)[ \t]*$", re.M | re.I)
 
 # The editorial note the same builder writes when one recording covers two
 # slides and the seam between them could not be found. A reader needs it; the
 # aligner does not, and it is 31 words that are in no audio anywhere. It wraps
 # across lines, so the rule runs to the closing bracket rather than to the
 # line's end, and the bracket-free class keeps it from crossing into a second
-# note.
+# note. Two openings for the same reason as `SILENT_SLIDE_LINE`: the note was
+# reworded on 2026-09-17 and documents carrying the old wording still exist.
 CONTINUED_NOTE = re.compile(
-    r"^([ \t\f]*)\(Narration for this slide is included on the previous slide"
+    r"^([ \t\f]*)\((?:Narration for this slide is included|"
+    r"The words for this slide are) on the previous slide"
     r"[^()]*\)[ \t]*$", re.M)
 
 # A link's label, copied from the course page along with the slide's text.
@@ -162,7 +183,29 @@ LINK_LABEL_LINE = re.compile(r"^([ \t\f]*)View Paper[ \t]*$", re.M)
 UNSPOKEN_LINES = (NO_AUDIO_LINE, SILENT_SLIDE_LINE, CONTINUED_NOTE,
                   LINK_LABEL_LINE)
 
+#: The last resort, not the answer: `find_pdftotext` looks first, because this
+#: path is right on the machine that wrote it and wrong on an Intel Mac and on
+#: every Mac the kit is installed on. Kept so a caller that passes nothing on a
+#: machine where nothing is found still fails the old way (an OSError that
+#: `pdf_text` turns into ""), not a new one.
 PDFTOTEXT = "/opt/homebrew/bin/pdftotext"
+
+
+def find_pdftotext(named=None):
+    """`pdftotext`, found rather than assumed: a named one, then
+    `STUDY_HUB_PDFTOTEXT`, then the PATH, then the two places Homebrew puts it.
+
+    🔴 Returns None when there is none, and a caller that reports readiness must
+    say so rather than counting zero passages: a check that could not run and a
+    check that found nothing print the same number, and only one is good news.
+    The install (`install_captions`) cannot supply this one; poppler does.
+    """
+    for cand in (named, os.environ.get("STUDY_HUB_PDFTOTEXT"),
+                 shutil.which("pdftotext"),
+                 "/opt/homebrew/bin/pdftotext", "/usr/local/bin/pdftotext"):
+        if cand and os.path.exists(cand):
+            return cand
+    return None
 
 
 class Block(object):
@@ -182,8 +225,12 @@ class Block(object):
                 and self.slide == other.slide and self.text == other.text)
 
 
-def pdf_text(path, binary=PDFTOTEXT, layout=False, heal=True):
+def pdf_text(path, binary=None, layout=False, heal=True):
     """The transcript as text, or "" when it cannot be read.
+
+    `binary` names the pdftotext to run; None means `find_pdftotext()`, falling
+    back to the hard-coded `PDFTOTEXT` so the failure on a bare machine is the
+    same "" it always was.
 
     ⚠️ Returns "" rather than raising, because a sweep over fifty files should
     report the one it could not read and keep going. The caller can tell the
@@ -210,6 +257,7 @@ def pdf_text(path, binary=PDFTOTEXT, layout=False, heal=True):
     The repair fires only on a document containing NO `ti` at all, and only on
     fragments it can prove: across this corpus that is **one file of 125**.
     """
+    binary = binary or find_pdftotext() or PDFTOTEXT
     cmd = [binary] + (["-layout"] if layout else []) + [str(path), "-"]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True)
@@ -566,6 +614,158 @@ def strip_unspoken(text):
     return text
 
 
+# --------------------------------------------------------------------------
+# A video embedded in a lecture: its dialogue is printed, and never spoken
+# --------------------------------------------------------------------------
+
+# 🔴 A LECTURE CAN EMBED A VIDEO, AND THE TRANSCRIPT PRINTS ITS DIALOGUE BETWEEN
+# TWO MARKERS: `<title> [Video]` ... `<title> [Video] End`. **None of it is in
+# the slide audio and none of it ever can be**: the package holds the slides'
+# own clips and no video file, so the aligner is right to place none of those
+# words, and they were counting against a coverage figure they were never
+# eligible for. Measured on the three transcripts of one course's week that
+# carry the markers, 7%, 41% and 73% of the words sat inside a video, and the
+# 41% lecture read 0.584 covered with every one of its clips captioned.
+#
+# ⚠️ THE MARKER ARRIVES MANGLED, exactly as this project's other OCR debris does:
+# `C o nsultatio n 2 [V id e o ] E nd`, and once with `}` closing the bracket.
+# Both are tolerated, because a marker that is only recognised when the
+# extractor spelled it well is a marker that fails on the transcripts it is
+# for. A marker may sit beside the slide's own label (`Slide 4: <title>
+# [Video]`); the label stays, so the block keeps its number and a labelled
+# transcript keeps its shape.
+#
+# 🔴 THE MARKERS ARE NOT RELIABLY PAIRED, AND THE FAILURE DIRECTION IS CHOSEN:
+# keep words rather than drop speech. A start pairs only with the next end
+# that carries the SAME title (whitespace and case aside, since the spacing is
+# the extractor's); anything else is an unpaired marker, and an unpaired
+# marker removes itself and nothing after it. **Every region and every
+# unpaired marker is reported**, because a stripper that silently swallowed
+# the rest of a transcript would be a worse defect than the one it fixes.
+VIDEO_MARK = re.compile(
+    r"\[\s*v\s*i\s*d\s*e\s*o\s*[\]}](?P<end>[ \t]*e\s*n\s*d\b)?", re.I)
+
+#: A marker's title runs back along its own line to the line's start or to the
+#: last colon before it (`Slide 4:`). Longer than this and it is not a title
+#: but a sentence the extractor ran the marker into, which stays as words.
+VIDEO_TITLE_MAX = 60
+
+Video = collections.namedtuple("Video", "title start end words")
+"""One stripped region: its title as the transcript prints it, the slice of
+the text it occupied, and how many whitespace-separated words it held."""
+
+Unpaired = collections.namedtuple("Unpaired", "kind title at")
+"""A marker that found no partner: `kind` is `start` or `end`."""
+
+
+def _video_title(text, at):
+    """The title printed before a marker on its own line, and where it begins.
+    Empty, and beginning at the marker, when the line is too long to be one."""
+    line_start = text.rfind("\n", 0, at) + 1
+    colon = text.rfind(":", line_start, at)
+    begin = colon + 1 if colon >= 0 else line_start
+    title = text[begin:at]
+    if len(title) > VIDEO_TITLE_MAX or "[" in title or "]" in title:
+        return "", at
+    return " ".join(title.split()), begin
+
+
+def _same_title(a, b):
+    return re.sub(r"\s+", "", a).casefold() == re.sub(r"\s+", "", b).casefold()
+
+
+def video_regions(text):
+    """Every embedded video the transcript marks: `(regions, unpaired)`.
+
+    A region runs from where its start marker's title begins to the end of its
+    end marker. Pairing is by order AND by title: a start is closed by the next
+    end that names the same video; an end with no open start, an end naming a
+    different video, and a start still open at the end of the text or when
+    another start arrives are all `Unpaired`, and strip nothing but themselves.
+    """
+    regions, unpaired = [], []
+    open_ = None                                    # (title, begin, marker end)
+    for m in VIDEO_MARK.finditer(text or ""):
+        title, begin = _video_title(text, m.start())
+        if not m.group("end"):
+            if open_ is not None:
+                unpaired.append(Unpaired("start", open_[0], open_[1]))
+            open_ = (title, begin, m.end())
+            continue
+        if open_ is None or not _same_title(open_[0], title):
+            unpaired.append(Unpaired("end", title, begin))
+            continue
+        regions.append(Video(open_[0], open_[1], m.end(),
+                             len(text[open_[1]:m.end()].split())))
+        open_ = None
+    if open_ is not None:
+        unpaired.append(Unpaired("start", open_[0], open_[1]))
+    return regions, unpaired
+
+
+def strip_video_regions(text):
+    """The text with every paired video region removed and every unpaired
+    marker removed, as `(text, regions, unpaired)`.
+
+    🟢 A transcript with no marker comes back as the very same object, which is
+    what lets a caller prove this changed nothing for the other lectures. Page
+    breaks inside a region are kept, so the cover-page test downstream still
+    sees the page boundaries it counts.
+    """
+    regions, unpaired = video_regions(text)
+    if not regions and not unpaired:
+        return text, regions, unpaired
+    cuts = [(r.start, r.end) for r in regions]
+    for u in unpaired:
+        m = VIDEO_MARK.search(text, u.at)
+        cuts.append((u.at, m.end()))
+    out, last = [], 0
+    for a, b in sorted(cuts):
+        if a < last:                    # an unpaired end inside a region: gone already
+            continue
+        out.append(text[last:a])
+        out.append("\f" * text.count("\f", a, b))
+        last = b
+    out.append(text[last:])
+    return "".join(out), regions, unpaired
+
+
+def video_sweep(paths, read=None, log=print):
+    """Which transcripts carry a video marker, one row each, then the count.
+
+    🟢 A POSITIVE RESULT ON PURPOSE: the last line says how many of how many,
+    so a run that examined nothing cannot read the same as a run that found
+    nothing. `read` turns a path into text and defaults to `pdf_text`.
+    """
+    read = read or pdf_text
+    carrying, unpaired_total = 0, 0
+    for path in paths:
+        regions, unpaired = video_regions(read(path))
+        if not regions and not unpaired:
+            continue
+        carrying += 1
+        unpaired_total += len(unpaired)
+        words = sum(r.words for r in regions)
+        log("%s: %d region(s), %d words inside, %d unpaired marker(s)"
+            % (os.path.join(os.path.basename(os.path.dirname(path)),
+                            os.path.basename(path)),
+               len(regions), words, len(unpaired)))
+        for r in regions:
+            log("    %-40s %5d words" % (r.title or "(untitled)", r.words))
+        for u in unpaired:
+            log("    UNPAIRED %s marker %r at %d, kept the words after it"
+                % (u.kind, u.title, u.at))
+    log("%d of %d transcripts carry a video marker; %d unpaired marker(s)"
+        % (carrying, len(paths), unpaired_total))
+    return carrying
+
+
+def library_transcripts(root="."):
+    """Every current transcript PDF under `materials/`, every course, sorted."""
+    return material_names.current(
+        glob.glob(os.path.join(root, "materials", "*", "* - Transcript*.pdf")))
+
+
 #: How many non-blank lines at each end of a page can be page furniture. The
 #: measured footer is 3 lines plus a page number; 5 leaves room without reaching
 #: into a paragraph.
@@ -785,13 +985,22 @@ def audio_files(package_dir):
 
 
 def transcript_for(materials_dir, doc_id):
-    """The transcript PDF for one part, or None.
+    """The CURRENT transcript PDF for one part, or None.
 
     Named `<DOC> - Transcript (<whatever the course called it>).pdf`, and the
     parenthesised half varies per course and per week, so it is matched by
     prefix rather than reconstructed.
+
+    🔴 A corrected transcript's superseded twin matches the same prefix and sits
+    in the same folder (nothing is deleted). It is not a candidate, by name and
+    not by sort order: until 2026-09-17 the corrected one won only because `(`
+    sorts before `s`, and the captions would have been built from the OLD words
+    the day a name sorted the other way. A folder holding only a superseded
+    file answers None, so a corrected transcript that failed to write looks
+    missing rather than fine.
     """
-    hits = sorted(glob.glob(os.path.join(str(materials_dir), "%s - Transcript*.pdf" % doc_id)))
+    hits = material_names.current(
+        glob.glob(os.path.join(str(materials_dir), "%s - Transcript*.pdf" % doc_id)))
     return hits[0] if hits else None
 
 
@@ -918,6 +1127,9 @@ def main(argv=None):
                     help="blocks against narration files, every package")
     ap.add_argument("--blocks", nargs=2, metavar=("COURSE", "DOC"),
                     help="print one part's blocks")
+    ap.add_argument("--videos", action="store_true",
+                    help="which transcripts, every course, mark an embedded "
+                         "video whose dialogue is never in the slide audio")
     ap.add_argument("--root", default=".", help="repo root (default: .)")
     a = ap.parse_args(argv)
 
@@ -925,6 +1137,9 @@ def main(argv=None):
         return self_test()
     if a.survey:
         return survey(a.survey, a.root)
+    if a.videos:
+        video_sweep(library_transcripts(a.root))
+        return 0
     if a.blocks:
         course, doc = a.blocks
         pdf = transcript_for(os.path.join(a.root, "materials", course), doc)

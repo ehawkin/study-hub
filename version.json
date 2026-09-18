@@ -1,5 +1,5 @@
 {
- "version": "2026.09.18a+494e2d4",
+ "version": "2026.09.18b+349f7ca",
  "url": "https://github.com/ehawkin/study-hub/releases/latest",
- "note": "The same reader as v2026.09.18 without the four stray bytecode files that release carried: the pop-out player keeps its controls, the lookup panel sorts by what a source is, two Macs can no longer mint the same card, a swapped bookmark is no longer invisible to the merge, and a silent slide's marker is no longer read as speech."
+ "note": "The caption engine now ships in the kit and installs itself on a click: caption_course.py --install builds its own venv with pinned torch, torchaudio and numpy plus a bundled ffmpeg, warms the model once, and the wizard Captions checkbox and the Settings button work on a Mac that has only the kit. Ten more generator modules join the kit, 65 files in all."
 }

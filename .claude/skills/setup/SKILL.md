@@ -91,15 +91,16 @@ error. It is the point at which they choose one of the two paths below.
 
 Ask which of these they have, and say it in their words, not ours:
 
-- **Somebody sent them a lesson pack** (one `.html` file per lesson, or a folder
-  of them). 🔴 **Tell them to do this themselves, in the browser**: on the course
+- **Somebody sent them a course** (one `.zip` of the whole course, carrying its
+  caption cues when the sender ticked that box) **or a lesson pack** (one `.html`
+  file per lesson, or a folder of them). 🔴 **Tell them to do this themselves, in the browser**: on the course
   page there is a **Choose a lesson file** button, and the whole page is a drop
   target. That is the route the product is built around and the one they can
   repeat next week without you.
 
   Do it from here only when they ask you to, or when there are dozens of files:
   ```
-  python3 server/lesson_packs.py --import <file-or-folder> --module <CODE>
+  python3 server/lesson_packs.py --import <file, folder or .zip> --module <CODE>
   ```
   `<CODE>` names the course. **It does not have to exist yet**: the import
   creates it and says so. Take the code from the module if they know it,
@@ -111,6 +112,16 @@ Ask which of these they have, and say it in their words, not ours:
 
 - **They already have a folder of slides and transcripts.** Point the course at
   it and use the **write-lesson** skill to turn it into lessons.
+
+**Captions are optional, and the first build installs an engine.** A course
+they download has no captions until they ask: the wizard's checkbox, or in
+Settings **Install the caption engine** and then **Build the missing captions**.
+The install fetches a few hundred megabytes once, into `~/.kcl-study/`, and says
+the size before it starts; nothing runs unless they tick or click. From here it
+is `python3 server/caption_course.py --install`, and the same command tells
+you what it would need first. ⚠️ Reading a transcript also needs `pdftotext`,
+which the install cannot supply; on a Mac with Homebrew it is
+`brew install poppler`, and the readiness report says so when it is missing.
 
 ### 6. Offer to keep it running
 

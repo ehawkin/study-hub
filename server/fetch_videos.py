@@ -35,6 +35,9 @@ is visible from the run rather than discovered later.
 """
 
 import json
+import os
+import re
+import shutil
 import subprocess
 import sys
 import time
@@ -139,7 +142,47 @@ def audio_dest(folder, doc):
     return folder / "audio" / (doc + ".m4a")
 
 
-def extract_audio(src, dest, recode=False, runner=subprocess.run):
+#: Where `install_captions` places the static ffmpeg it takes out of the
+#: imageio-ffmpeg wheel: beside the engine's python, so a Mac with no Homebrew
+#: has one. The one definition; every finder in this project looks here.
+VENV_FFMPEG = os.path.join("~", ".kcl-study", "captions-venv", "bin", "ffmpeg")
+
+
+def find_ffmpeg(named=None):
+    """ffmpeg, without a hard-coded home directory.
+
+    Same shape as `captions.find_python`: a named one, then the environment
+    variable, then whatever is on the PATH, then the copy the caption-engine
+    install placed, then the two places Homebrew puts it on the two kinds of
+    Mac. **A hard-coded `/opt/homebrew/bin/ffmpeg` is right on this machine and
+    wrong on an Intel one**, and this file runs on a recipient's machine over
+    materials they downloaded themselves.
+    """
+    for cand in (named, os.environ.get("STUDY_HUB_FFMPEG"), shutil.which("ffmpeg"),
+                 os.path.expanduser(VENV_FFMPEG),
+                 "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"):
+        if cand and os.path.exists(cand):
+            return cand
+    return None
+
+
+def find_ffprobe(named=None):
+    """ffprobe, or None. ⚠️ The static ffmpeg the install places comes WITHOUT
+    an ffprobe, so `probe_seconds` has a second way to measure a duration; this
+    only finds one that is there: named, PATH, or the sibling of the ffmpeg."""
+    ffmpeg = find_ffmpeg()
+    sibling = os.path.join(os.path.dirname(ffmpeg), "ffprobe") if ffmpeg else None
+    for cand in (named, os.environ.get("STUDY_HUB_FFPROBE"), shutil.which("ffprobe"),
+                 sibling):
+        if cand and os.path.exists(cand):
+            return cand
+    return None
+
+
+DURATION_LINE = re.compile(r"Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)")
+
+
+def extract_audio(src, dest, recode=False, runner=subprocess.run, ffmpeg=None):
     """The audio stream out of a downloaded lecture. Returns (what, bytes).
 
     🟢 `-vn -c:a copy` REMUXES: the AAC stream is lifted out untouched, so there
@@ -157,8 +200,8 @@ def extract_audio(src, dest, recode=False, runner=subprocess.run):
     if tmp.exists():
         tmp.unlink()
     codec = ["-c:a", "aac", "-b:a", "32k", "-ac", "1"] if recode else ["-c:a", "copy"]
-    r = runner(["ffmpeg", "-nostdin", "-loglevel", "error", "-y",
-                "-i", str(src), "-vn"] + codec + ["-f", "mp4", str(tmp)],
+    r = runner([ffmpeg or find_ffmpeg() or "ffmpeg", "-nostdin", "-loglevel",
+                "error", "-y", "-i", str(src), "-vn"] + codec + ["-f", "mp4", str(tmp)],
                capture_output=True, text=True)
     if getattr(r, "returncode", 1) != 0 or not tmp.exists() or tmp.stat().st_size == 0:
         if tmp.exists():
@@ -169,21 +212,46 @@ def extract_audio(src, dest, recode=False, runner=subprocess.run):
     return "extracted", dest.stat().st_size
 
 
-def probe_seconds(path, runner=subprocess.run):
-    """The real duration of a media file, or None if ffprobe cannot say.
+def probe_seconds(path, runner=subprocess.run, ffprobe=None, ffmpeg=None):
+    """The real duration of a media file, or None if nothing here can say.
 
     🔴 None is NOT zero. A caller that treats "could not measure" as "zero
     seconds" reports every file as wrong, which is the shape that trains a reader
-    to ignore the check."""
-    r = runner(["ffprobe", "-v", "error", "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
-               capture_output=True, text=True)
-    if getattr(r, "returncode", 1) != 0:
+    to ignore the check.
+
+    ffprobe first, when there is one. ⚠️ On a Mac whose only ffmpeg is the static
+    one the caption-engine install placed there is NO ffprobe, and until
+    2026-09-18 this ran a bare `ffprobe` with nothing catching the OSError, so a
+    kit recipient's coverage check crashed instead of measuring. Now the second
+    way: `ffmpeg -i <file>` prints `Duration: HH:MM:SS.ss` to stderr and exits
+    non-zero for want of an output, and that line is read regardless of the rc.
+    """
+    probe = ffprobe or find_ffprobe()
+    if probe:
+        try:
+            r = runner([probe, "-v", "error", "-show_entries", "format=duration",
+                        "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+                       capture_output=True, text=True)
+        except OSError:
+            r = None
+        if r is not None and getattr(r, "returncode", 1) == 0:
+            try:
+                return float((getattr(r, "stdout", "") or "").strip())
+            except ValueError:
+                pass
+    binary = ffmpeg or find_ffmpeg()
+    if not binary:
         return None
     try:
-        return float((getattr(r, "stdout", "") or "").strip())
-    except ValueError:
+        r = runner([binary, "-nostdin", "-hide_banner", "-i", str(path)],
+                   capture_output=True, text=True)
+    except OSError:
         return None
+    m = DURATION_LINE.search((getattr(r, "stderr", "") or "")
+                             + (getattr(r, "stdout", "") or ""))
+    if not m:
+        return None
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
 
 
 def duration_verdict(seconds, minutes):

@@ -108,23 +108,13 @@ def excluded(path):
 
 
 def find_pdftotext(named=None):
-    """`pdftotext`, found rather than assumed.
-
-    ⚠️ `transcripts.py` hard-codes `/opt/homebrew/bin/pdftotext`, which is right
-    on this machine and wrong on an Intel Mac and wrong on every machine a kit is
-    installed on. That is a filed finding; this refuses to repeat it, and passes
-    what it finds to `transcripts.pdf_text(path, binary=...)`, which takes the
-    binary as a parameter for exactly this reason.
+    """`pdftotext`, found rather than assumed: `transcripts.find_pdftotext`,
+    the one finder every reader of a transcript PDF goes through.
 
     🔴 Returns None when there is none, and the caller must report that rather
     than counting zero passages. A check that could not run and a check that
     found nothing print the same number, and only one of them is good news."""
-    for cand in (named, os.environ.get("STUDY_HUB_PDFTOTEXT"),
-                 shutil.which("pdftotext"),
-                 "/opt/homebrew/bin/pdftotext", "/usr/local/bin/pdftotext"):
-        if cand and os.path.exists(cand):
-            return cand
-    return None
+    return T.find_pdftotext(named)
 
 
 def sentences(text):

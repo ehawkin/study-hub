@@ -10,7 +10,8 @@ What it adds when the server is there:
   - automatic vault sync, so highlights reach your Obsidian vault with no
     export step;
   - Look up, which is free and instant-ish: the module glossary, MeSH, Wikipedia;
-  - Explain, which asks Claude through the local CLI and costs no API key;
+  - Explain, which asks Claude through Claude Code on that machine (no API
+    key needed), or through an API key its owner pastes in Settings;
   - Keep, which files an explanation beside the note, never inside it.
 ================================================================ -->
 
@@ -3865,7 +3866,15 @@ What it adds when the server is there:
   if (!onServer) return;
 
   var API  = location.origin;
-  var caps = { explain: false, model: '', vault: true };
+  /* caps.why is the server's own sentence for why asking is off (which of
+     the two routes to Claude is missing, and what to do about it); caps.backend
+     names the route in use, 'cli' or 'api'. Every "not available" message
+     below reads caps.why rather than assuming the CLI, because a reader on a
+     machine without Claude Code may have an API key instead. The server
+     composes that sentence with its own host word for this reader, the same
+     rule as hostWord() below; the fallback here asks hostWord() itself. */
+  var caps = { explain: false, model: '', vault: true, why: '', backend: '' };
+  function whyOff() { return caps.why || ('Claude Code was not found on ' + hostWord() + '.'); }
   var TOKEN_KEY = 'kcl-study-token';
   var LEVEL_KEY = 'kcl-study-level';
   /* How an answer should be pitched. Chosen once and remembered, so it never has
@@ -5059,8 +5068,7 @@ What it adds when the server is there:
 
     if (!caps.explain) {
       ask.hidden = true;
-      return msg('Asking is not available: the Claude Code CLI was not found, or it ' +
-                 'is switched off in the config.');
+      return msg('Asking is not available. ' + whyOff());
     }
     renderChat();
     askBox.focus();
@@ -5071,7 +5079,7 @@ What it adds when the server is there:
      might want to ask, not a different feature. */
   function sendAsk(question, shownAs) {
     if (!current) return;
-    if (!caps.explain) return msg('The Claude Code CLI was not found.');
+    if (!caps.explain) return msg(whyOff());
     setTab('explain');
     pop.classList.add('chat');
     ask.hidden = false;
@@ -12494,7 +12502,7 @@ What it adds when the server is there:
     if (!caps.explain) {
       if (!openChat) { openChat = newChat(null, null, null); chats.push(openChat); }
       openChat.pending = null;
-      openChat.turns.push({ role: 'claude', text: '(the Claude Code CLI was not found, so nothing can be asked)' });
+      openChat.turns.push({ role: 'claude', text: '(nothing can be asked: ' + whyOff() + ')' });
       return renderThread();
     }
     pBox.value = '';
@@ -14874,7 +14882,7 @@ What it adds when the server is there:
     if (!editing) return;
     var instruction = edAsk.value.trim();
     if (!instruction) { edAsk.focus(); return setStatus('Say what is wrong with it first.', true); }
-    if (!caps.explain) return setStatus('The Claude Code CLI was not found.', true);
+    if (!caps.explain) return setStatus(whyOff(), true);
 
     edAskBtn.disabled = true;
     setStatus('Rewriting. This takes a few seconds.');
@@ -15130,8 +15138,13 @@ What it adds when the server is there:
   api('/api/status').then(function (r) {
     caps.explain = !!(r.body && r.body.explain);
     caps.model = (r.body && r.body.model) || '';
+    caps.why = (r.body && r.body.explainWhy) || '';
+    caps.backend = (r.body && r.body.backend) || '';
     explBtn.disabled = !caps.explain;
-    explBtn.title = caps.explain ? 'Ask Claude about this, using the local CLI' : 'Claude Code CLI not found';
+    explBtn.title = caps.explain
+      ? (caps.backend === 'api' ? 'Ask Claude about this, through the API key set in Settings'
+                                : 'Ask Claude about this, using Claude Code on ' + hostWord())
+      : whyOff();
     /* 🔴 Vault publishing is optional (plan 02 §10d item 1). Everything in this
        branch runs ONLY when the server says the vault is off, which is what
        makes it inert on a machine that has one: EH's status carries

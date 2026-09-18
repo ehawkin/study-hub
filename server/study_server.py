@@ -71,6 +71,10 @@ import timeline                                                 # noqa: E402
 # is data plumbing with no HTTP in it, and because it has to be testable without
 # starting a server.
 import regionpack                                               # noqa: E402
+# What a downloaded material's name says about it: one sentence, shared with the
+# captions and the pack copier, so "which of two transcript files is current" is
+# answered the same way everywhere a transcript is looked up.
+import material_names                                           # noqa: E402
 
 
 # --- which code is actually answering ---------------------------------------------------
@@ -133,8 +137,11 @@ def _local_module_files(root=None):
     `test_build_id` parses THIS sentence and asserts it against
     `len(_local_module_files())`, so it cannot drift again without going red.
     **Say it in exactly this shape, once, or the test will not find it.**
+    🟢 Ten since 2026-09-17: `material_names.py`, the one place every reader of
+    a downloaded material's name asks whether it is superseded, and the test
+    went red on its own and was agreed to in the same unit.
 
-    Today the closure holds exactly 9 files.
+    Today the closure holds exactly 10 files.
 
     🔴 THE TWO OBVIOUS ALTERNATIVES BOTH LOSE, and the reasons are worth
     keeping because both will be re-proposed.
@@ -254,7 +261,33 @@ HEAD_ICONS = (
 # so the front page, the tab title and the guide cannot drift into three names.
 PRODUCT = "Study Hub"
 
-CONFIG_PATH = Path(os.environ.get("KCL_STUDY_CONFIG", "~/.kcl-study/config.json")).expanduser()
+# Two paths, kept apart on purpose. MACHINE_CONFIG_PATH is the machine's own
+# config: the environment variable, else the home-directory default. It is
+# never reassigned, because load_config compares against it to decide that a
+# config is a RIG's and so gets no vault by default. CONFIG_PATH is the file
+# this process reads AND writes: main() points it at `--config` before
+# anything loads or saves (bind_config_path), and read_raw_config /
+# save_raw_config follow it at call time.
+#
+# 🔴 Until 2026-09-18 there was one name for both, and `--config` was a local
+# variable in main() handed to load_config alone. So a rig started with
+# `--config <scratch>` read the scratch file and `/api/machine` wrote the key
+# it was given into the machine's own config, backup and all, answering `ok`.
+# study-hub-qa found it by writing a sentinel into the owner's real file. The
+# read succeeding is exactly what convinces you the flag worked.
+MACHINE_CONFIG_PATH = Path(os.environ.get("KCL_STUDY_CONFIG",
+                                          "~/.kcl-study/config.json")).expanduser()
+CONFIG_PATH = MACHINE_CONFIG_PATH
+
+
+def bind_config_path(flag):
+    """Point CONFIG_PATH at `--config` when it was given, and return the path
+    the process will use. With no flag the machine's own config is it, exactly
+    as before. 🟢 The flag wins over KCL_STUDY_CONFIG when both are set: it is
+    the more specific of the two and the one typed at the moment of use."""
+    global CONFIG_PATH
+    CONFIG_PATH = Path(flag).expanduser() if flag else MACHINE_CONFIG_PATH
+    return CONFIG_PATH
 # 🔴 Moved off 8792 on 2026-08-21, and RESERVED_PORTS below refuses it, so this
 # had to move with it: leaving the default ON a reserved port refuses every fresh
 # install with "Port 8792 belongs to another Agent Nexus service", which is a
@@ -405,6 +438,16 @@ DEFAULT_CONFIG = {
     "notes_dir": str(REPO / "notes"),
     # R8/R9. EH's choice of name and of a directory of its own, 2026-08-14.
     "resources_dir": str(REPO / "resources"),
+    # Where the share button writes its zip. Empty means the Desktop (or the
+    # home folder when there is no Desktop), which is the right answer for a
+    # person and the only one the reader ever offered. 🔴 A HARNESS KEY, not a
+    # preference: a scratch server whose every other path points into a
+    # scratch folder still wrote its zip onto the machine owner's real Desktop
+    # (measured 2026-09-17, twice), and `export_course` names the file after
+    # the course CODE alone, so a rig serving a code he also has would
+    # overwrite his own share file and say nothing. The rigs set this to their
+    # own folder; nothing in Settings shows or sets it.
+    "share_dest": "",
     # 🔴 Off is the right default for anyone who is not EH (plan §10d item 1):
     # a recipient has no Obsidian vault, and a reader that boots with a vault
     # badge and a "vault not found" warning looks broken on arrival. His config
@@ -425,6 +468,13 @@ DEFAULT_CONFIG = {
     # being true.
     "explain_model": "claude-sonnet-5",
     "claude_bin": "",
+    # How the reader reaches Claude for Explain, the chat and Rewrite. See
+    # ask_backend(): auto is the CLI when it is there, else the API when a key
+    # is set, so nothing changes on a machine that has Claude Code.
+    "ask_backend": "auto",
+    # 🔴 The machine owner's own key, in this file (0600) and nowhere else:
+    # never in /api/status, the settings page, the log or an error string.
+    "api_key": "",
     # Optional. Sent in the User-Agent of the public definition lookups, which
     # is the polite convention for them. Empty means the software identifies
     # itself and nobody else. See user_agent().
@@ -436,6 +486,10 @@ DEFAULT_CONFIG = {
 }
 
 WRITE_LOCK = threading.Lock()
+# One save of the config at a time. /api/machine takes no lock of its own,
+# and save_raw_config writes through a shared `.tmp` name, so two saves in
+# flight used to race each other as well as share a backup name.
+CONFIG_LOCK = threading.Lock()
 
 # Marker pair that fences one part's block inside a shared topic note. Anything
 # outside a pair is EH's own writing and is never touched.
@@ -591,7 +645,8 @@ KALTURA_SUBPARTNER = KALTURA_PARTNER + "00"
 # config
 # --------------------------------------------------------------------------
 
-def load_config(path=CONFIG_PATH):
+def load_config(path=None):
+    path = Path(CONFIG_PATH if path is None else path)
     if not path.exists():
         sys.exit(
             "No config at %s\nRun:  python3 %s --init" % (path, Path(__file__).name)
@@ -630,8 +685,8 @@ def load_config(path=CONFIG_PATH):
     # one relying on the default, and its vault is on because of the path
     # comparison below and nothing else.
     #
-    # Nothing is broken by that today — his config sits at `CONFIG_PATH`, so the
-    # comparison gives him `True`. The cost is that there is no second line of
+    # Nothing is broken by that today: his config sits at `MACHINE_CONFIG_PATH`,
+    # so the comparison gives him `True`. The cost is that there is no second line of
     # defence: if his config were ever loaded from another path, or copied to
     # seed a rig, **publishing would silently stop** and the stated safety net
     # was never actually there. The remedy (backfill the key once, or persist
@@ -639,14 +694,18 @@ def load_config(path=CONFIG_PATH):
     # to take: see the review-lane entry in `_admin/WORK-QUEUE.md`.
     #
     # ⚠️ THE RESIDUAL, named rather than left for somebody to find. "The
-    # machine's own" means `CONFIG_PATH`, which honours `KCL_STUDY_CONFIG`. A rig
-    # started with `--config <path>` is covered, which is how this project starts
-    # them; a rig that instead EXPORTED `KCL_STUDY_CONFIG` would be its own
+    # machine's own" means `MACHINE_CONFIG_PATH`, which honours `KCL_STUDY_CONFIG`.
+    # A rig started with `--config <path>` is covered, which is how this project
+    # starts them; a rig that instead EXPORTED `KCL_STUDY_CONFIG` would be its own
     # machine config by definition and would default on again. Closing that by
     # hardcoding `~/.kcl-study/config.json` would silently disable the vault for
     # anyone who legitimately relocates their config, which is a worse trade for
     # a hole no rig recipe here goes near. Pinned by a test that names it.
-    if "vault_enabled" not in raw and path != CONFIG_PATH:
+    #
+    # 🔴 And it is MACHINE_CONFIG_PATH here, not CONFIG_PATH, on purpose: since
+    # 2026-09-18 main() binds CONFIG_PATH to `--config`, so comparing against
+    # that would make every rig equal to itself and hand it a vault.
+    if "vault_enabled" not in raw and path != MACHINE_CONFIG_PATH:
         cfg["vault_enabled"] = False
 
     if not bind_allowed(cfg["bind_ip"]):
@@ -694,7 +753,8 @@ def load_config(path=CONFIG_PATH):
     return cfg
 
 
-def init_config(path=CONFIG_PATH):
+def init_config(path=None):
+    path = Path(CONFIG_PATH if path is None else path)
     if path.exists():
         print("Config already exists at %s, left alone." % path)
         return
@@ -731,7 +791,9 @@ def init_config(path=CONFIG_PATH):
     print("  courses: %s" % (cfg["courses_dir"] or cfg["notes_dir"]))
     print("  vault:  %s" % (cfg["vault_courses"] if cfg["vault_enabled"] else
                              "off (no Obsidian vault found, and nothing needs one)"))
-    print("  claude: %s" % (cfg["claude_bin"] or "not found, Explain will be off"))
+    print("  claude: %s" % (cfg["claude_bin"] or
+                            "not found. Asking works through Claude Code, or "
+                            "through an API key pasted in Settings."))
 
 
 # --------------------------------------------------------------------------
@@ -1012,32 +1074,103 @@ def create_module(root, module_id, name="", class_name="",
 #    answer, it writes nothing and returns what it found for the page to put to
 #    him.
 
-def read_raw_config(path=CONFIG_PATH):
+def read_raw_config(path=None):
     """The config file exactly as it is on disk, with no defaults merged in.
+    `path` defaults to CONFIG_PATH at CALL time, so a test that points
+    CONFIG_PATH at a scratch file (the way test_ask_backend does) is honoured,
+    and so is `--config`, which main() binds there.
 
     🔴 Defaults must not be merged here. This dict is written straight back, and
     a merged default would silently become a written setting: the difference
     between "not set, so it follows the default" and "pinned to what the default
     happened to be the day you changed your vault path"."""
+    path = CONFIG_PATH if path is None else path
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def save_raw_config(data, path=CONFIG_PATH):
+def claim_backup(name_at, mode=0o600):
+    """Take a backup name that nobody else holds, and hand back the open file.
+
+    `name_at(suffix)` names the file for a suffix: "" for the first backup of
+    a second, then "-2", "-3" and so on. The name is claimed with O_EXCL, so
+    two writers inside one second, or two threads at once, can never pick the
+    same file: the loser counts up and tries again. The file exists with
+    *mode* from the instant it exists, empty, and the caller fills it (or
+    renames over it: see `set_aside`). Returns `(fd, path)`, the path being
+    the file that was actually taken, which is what a route reports.
+
+    🔴 The counter starts at -2 on purpose: the `-2` file IS the second
+    backup of that second, and the first keeps the name it always had, so
+    every reader of these names keeps working. Built for `save_raw_config`
+    2026-09-18, after two cleanup writes in one second on the owner's own
+    config shared a name; lifted here the same day because four more
+    writers had the same shape, three of them on his own notes and the
+    files he attaches, where the survivor of a collision is the INTERMEDIATE
+    state and the copy a person restoring wants is the one that is gone."""
+    n = 1
+    while True:
+        path = Path(name_at("" if n == 1 else "-%d" % n))
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+        except FileExistsError:
+            n += 1
+            continue
+        return fd, path
+
+
+def set_aside(target):
+    """Move an existing file into the `backups/` folder beside it under a dated
+    name nobody else holds, and return where it went. A rename, never a copy
+    and a delete: the attach and remove routes use this because he may have
+    attached the only copy of something. The name is claimed first
+    (`claim_backup`), so a second attachment of the same file inside one
+    second, which used to rename OVER the first one's backup and lose it,
+    now lands beside it as `-2`. The file is tightened to 0600 before the
+    move, so the backup is 0600 from the instant it exists under that name."""
+    target = Path(target)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    fd, bak = claim_backup(lambda n: split_lessons.backup_target(
+        target, "%s.%s%s.bak" % (target.name, stamp, n)))
+    os.close(fd)
+    os.chmod(target, 0o600)
+    target.replace(bak)
+    return bak
+
+
+def save_raw_config(data, path=None):
     """Write the config, keeping a dated copy of what it said before.
 
     The backup is beside the original and is left there: a person cleans those
     up, not the process that made them. 0600 on both, because the token is in
-    both."""
-    path = Path(path)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = path.with_name(path.name + ".%s.bak" % stamp)
-    shutil.copy2(path, backup)
-    os.chmod(backup, 0o600)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    os.chmod(tmp, 0o600)
-    tmp.replace(path)          # atomic: no window where the config is half-written
-    os.chmod(path, 0o600)
+    both, and the key can be too.
+
+    🔴 The stamp is to the second, and until 2026-09-18 a second save inside
+    the same second copied over the first backup: the survivor held the
+    intermediate state and the state BEFORE the first save, the one a person
+    restoring actually wants, was gone. It cost something real the day it was
+    filed: two cleanup writes in one second on the owner's own config, and the
+    restore worked only because a forensic copy had been taken by hand first.
+    🟢 So the name gets a counter when it is taken (`.bak`, then `-2.bak`,
+    `-3.bak`), claimed with O_EXCL so two writers cannot pick it together, and
+    the first backup of any second keeps the name it always had. Not a finer
+    stamp: every reader of these names keeps working. The returned path is the
+    file that was actually written, which is what the route reports. The
+    claim itself is `claim_backup`, shared with every other backup writer in
+    this file since the same day."""
+    path = Path(CONFIG_PATH if path is None else path)
+    with CONFIG_LOCK:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        fd, backup = claim_backup(
+            lambda n: path.with_name(path.name + ".%s%s.bak" % (stamp, n)))
+        with os.fdopen(fd, "wb") as out, open(path, "rb") as src:
+            shutil.copyfileobj(src, out)
+        shutil.copystat(path, backup)   # the mtime says when the config last changed
+        os.chmod(backup, 0o600)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.replace(path)          # atomic: no window where the config is half-written
+        os.chmod(path, 0o600)
     return backup
 
 
@@ -1082,6 +1215,31 @@ def set_vault_path(raw, wanted):
     raw["vault_courses"] = str(target)
     said = "Notes will be published into %s" % target
     return (said + " (" + ", ".join(bits) + ")." if bits else said + "."), True
+
+
+def set_api_key(raw, wanted):
+    """Set, or with an empty value remove, the owner's API key. Returns the
+    message. Nothing here echoes the key: not the message, not the log."""
+    key = str(wanted or "").strip()
+    if not key:
+        raw["api_key"] = ""
+        return "The API key is removed."
+    if len(key) > 400 or any(ch.isspace() or not ch.isprintable() for ch in key):
+        raise ValueError("that does not look like an API key: it has spaces or "
+                         "characters a key cannot contain, so it was not saved")
+    raw["api_key"] = key
+    return "The API key is set."
+
+
+def set_ask_backend(raw, wanted):
+    """How the reader reaches Claude: auto, cli or api. Returns the message."""
+    mode = str(wanted or "").strip().lower()
+    if mode not in BACKEND_MODES:
+        raise ValueError("the route must be one of auto, cli or api")
+    raw["ask_backend"] = mode
+    return {"auto": "Claude Code when the server has it, else the API key.",
+            "cli": "Claude Code beside the server only.",
+            "api": "The API, with the key set here, only."}[mode]
 
 
 def set_courses_path(raw, wanted, answer, current_root):
@@ -2938,18 +3096,125 @@ Answer it. Rules:
 """
 
 
-def run_cli(cfg, prompt):
-    """One shot at the Claude Code CLI. No API key: it uses the subscription the
-    CLI is already signed in with."""
-    if not cfg.get("explain_enabled"):
-        return {"ok": False, "error": "Explain is switched off in the config."}
-    binary = cfg.get("claude_bin") or ""
-    if not binary or not Path(binary).exists():
-        from shutil import which
-        binary = which("claude") or ""
-    if not binary:
-        return {"ok": False, "error": "The Claude Code CLI was not found. Set claude_bin in the config."}
+# --------------------------------------------------------------------------
+# reaching Claude: the CLI on this machine, or the API with the owner's key
+# --------------------------------------------------------------------------
+#
+# EH, in chat 2026-09-17: "We should query Claude directly." Until then every
+# question the reader asked went through the `claude` binary, which uses the
+# subscription that CLI is signed in with; a machine without Claude Code had
+# the feature switched off and no way to turn it on. Now there are two routes
+# behind one seam. `ask_claude` is the only thing `do_ask` and `do_rewrite`
+# call, and which route answers is `ask_backend` in the config:
+#
+#   auto   the CLI when the binary is there, else the API when a key is set
+#          (the default, so a machine that has the CLI behaves as it did)
+#   cli    the CLI only
+#   api    the API only
+#
+# 🔴 The key is the machine owner's, lives in their config file (0600) and
+# nowhere else: never in /api/status, never in the settings page, never in
+# the log, never in an error string. No key ships in the kit.
+#
+# The API call is one POST with urllib, not an SDK: a new dependency in the
+# kit would have to install itself on a recipient's machine on first use,
+# which is exactly the difficulty the caption engine has and this need not.
 
+ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_VERSION = "2023-06-01"
+API_MAX_TOKENS = 8192
+BACKEND_MODES = ("auto", "cli", "api")
+
+
+def claude_binary(cfg):
+    """The Claude Code CLI on this machine, or "" when there is none."""
+    binary = str(cfg.get("claude_bin") or "")
+    if binary and Path(binary).exists():
+        return binary
+    return shutil.which("claude") or ""
+
+
+def api_key(cfg):
+    return str(cfg.get("api_key") or "").strip()
+
+
+HOST_HERE = "this machine"
+
+
+def host_word(client_ip):
+    """The layer's hostWord(), server-side, for sentences the SERVER composes
+    about where Claude Code would have to be. A request from loopback is on
+    the machine holding the files, always; from anywhere else the reader is
+    somewhere else (EH on the MacBook, the server on the Mini), and "this
+    machine" would be false, so the machine's own name is used, or the
+    generic term when there is none. See the note above machine_name()."""
+    if is_loopback(client_ip):
+        return HOST_HERE
+    return machine_name() or "the study server"
+
+
+def ask_backend(cfg, host=HOST_HERE):
+    """Which route answers, as (kind, detail): ("cli", binary), ("api", key),
+    or ("", why) when neither can, with a sentence a person can act on.
+    `host` is the word for the machine the server runs on, from host_word():
+    the sentences name it, and they must not claim "this machine" to a reader
+    who is somewhere else."""
+    if not cfg.get("explain_enabled"):
+        return "", "Explain is switched off in the config."
+    mode = str(cfg.get("ask_backend") or "auto").strip().lower()
+    if mode not in BACKEND_MODES:
+        mode = "auto"
+    binary = claude_binary(cfg)
+    key = api_key(cfg)
+    if mode == "cli":
+        if binary:
+            return "cli", binary
+        return "", ("Claude Code was not found on %s, and the config "
+                    "says to use it (ask_backend: cli). Install it and sign in, "
+                    "or choose another route in Settings." % host)
+    if mode == "api":
+        if key:
+            return "api", key
+        return "", ("No API key is set, and the config says to use the API "
+                    "(ask_backend: api). Paste a key in Settings, or choose "
+                    "another route there.")
+    if binary:
+        return "cli", binary
+    if key:
+        return "api", key
+    return "", ("Neither route to Claude is set up on %s: install "
+                "Claude Code and sign in, or paste an API key in Settings."
+                % host)
+
+
+def explain_status(cfg, host=HOST_HERE):
+    """What /api/status and the Settings page both say about asking: on or
+    off, which route, and why when off. One computation, so the two pages
+    cannot disagree, and the key is not in it."""
+    kind, detail = ask_backend(cfg, host)
+    return {"explain": bool(kind), "backend": kind,
+            "explainWhy": "" if kind else detail}
+
+
+def ask_claude(cfg, prompt, waiting_for="an answer", host=HOST_HERE):
+    """One prompt, one answer, by whichever route is set up. Returns
+    {"ok": True, "text": ...} or {"ok": False, "error": ...}, and the error
+    names the route, because "it did not answer" has two different fixes."""
+    kind, detail = ask_backend(cfg, host)
+    if kind == "cli":
+        out = ask_via_cli(cfg, detail, prompt, waiting_for)
+    elif kind == "api":
+        out = ask_via_api(cfg, detail, prompt, waiting_for)
+    else:
+        return {"ok": False, "error": detail}
+    if out.get("ok"):
+        out["text"] = out["text"].replace("\u2014", ", ")
+    return out
+
+
+def ask_via_cli(cfg, binary, prompt, waiting_for="an answer"):
+    """The Claude Code CLI. No API key: it uses the subscription the CLI is
+    already signed in with."""
     cwd = cfg["cache_dir"] / "explain-cwd"
     cwd.mkdir(parents=True, exist_ok=True)
     try:
@@ -2959,18 +3224,89 @@ def run_cli(cfg, prompt):
             timeout=int(cfg["explain_timeout"]),
         )
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "Timed out waiting for an answer."}
+        return {"ok": False, "error": "Timed out waiting for %s from Claude Code."
+                % waiting_for}
     except OSError as err:
-        return {"ok": False, "error": "Could not run the CLI: %s" % err}
+        return {"ok": False, "error": "Could not run Claude Code: %s" % err}
 
     if proc.returncode != 0:
         detail = (proc.stderr or "").strip().splitlines()
-        return {"ok": False, "error": detail[-1] if detail else "The CLI exited with an error."}
+        return {"ok": False, "error": "Claude Code: %s"
+                % (detail[-1] if detail else "the CLI exited with an error.")}
 
     text = (proc.stdout or "").strip()
     if not text:
-        return {"ok": False, "error": "Empty answer."}
-    return {"ok": True, "text": text.replace("—", ", ")}
+        return {"ok": False, "error": "Claude Code gave an empty answer."}
+    return {"ok": True, "text": text}
+
+
+def _https_post(url, headers, body, timeout):
+    """One HTTPS POST, as (status, text). Kept apart so the tests can stand
+    in for the network and the suite never makes a real call."""
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as err:
+        with err:
+            return err.code, err.read().decode("utf-8", "replace")
+
+
+def without_key(text, key):
+    """A sentence about to be shown or logged, with the key taken out of it
+    should anything upstream have echoed it back."""
+    return text.replace(key, "[the key]") if key else text
+
+
+def ask_via_api(cfg, key, prompt, waiting_for="an answer"):
+    """The Messages API with the owner's key. Same model ids as the CLI, same
+    prompt text, the reply's text blocks joined."""
+    body = json.dumps({
+        "model": chosen_model(cfg),
+        "max_tokens": API_MAX_TOKENS,
+        "messages": [{"role": "user", "content": prompt}],
+    }).encode("utf-8")
+    headers = {
+        "x-api-key": key,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "content-type": "application/json",
+        "user-agent": user_agent(cfg),
+    }
+    timed_out = {"ok": False, "error": "Timed out waiting for %s from the API." % waiting_for}
+    try:
+        status, text = _https_post(ANTHROPIC_MESSAGES_URL, headers, body,
+                                   int(cfg["explain_timeout"]))
+    except TimeoutError:
+        return timed_out
+    except urllib.error.URLError as err:
+        if isinstance(err.reason, TimeoutError):
+            return timed_out
+        return {"ok": False, "error": without_key(
+            "Could not reach api.anthropic.com: %s" % err.reason, key)}
+    except OSError as err:
+        return {"ok": False, "error": without_key(
+            "Could not reach api.anthropic.com: %s" % err, key)}
+
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    if status == 401:
+        return {"ok": False, "error": "The API key was refused (401). Check it in Settings."}
+    if status != 200:
+        err = data.get("error")
+        msg = str((err.get("message") if isinstance(err, dict) else err)
+                  or text or "").strip()[:300]
+        return {"ok": False, "error": without_key(
+            "The API answered %d: %s" % (status, msg or "no detail"), key)}
+    parts = [str(c.get("text") or "") for c in (data.get("content") or [])
+             if isinstance(c, dict) and c.get("type") == "text"]
+    text = "".join(parts).strip()
+    if not text:
+        return {"ok": False, "error": "The API gave an empty answer."}
+    return {"ok": True, "text": text}
 
 
 GENERAL_PROMPT = """A student is studying their course, {course}. Their question may be about this material:
@@ -3039,7 +3375,7 @@ def course_text(cfg):
     return "\n\n".join(out)[:150000]
 
 
-def do_ask(cfg, payload):
+def do_ask(cfg, payload, host=HOST_HERE):
     """One path for every question about a selection, including "explain this",
     which is now just a preset question rather than a separate mode. The
     conversation is stateless on the server: the page holds the turns and sends
@@ -3101,7 +3437,7 @@ def do_ask(cfg, payload):
             course=course, title=title or "this course", lesson=blob,
             history=history or "(nothing yet)", question=question, level=level)
 
-    out = run_cli(cfg, prompt)
+    out = ask_claude(cfg, prompt, host=host)
     if out.get("ok"):
         out["model"] = chosen_model(cfg)
         out["term"] = term
@@ -3154,14 +3490,13 @@ def keep_the_unreadable_bytes(path, raw, why, cfg=None):
         # run: the log said "kept 1 bytes" then "kept 2 bytes", both naming the
         # same file. A backup that overwrites a backup is the defect this whole
         # entry is about, arriving inside its own fix.
-        bak = split_lessons.backup_target(
-            path, "%s.unreadable-%s.bak" % (path.name, stamp))
-        n = 0
-        while bak.exists():
-            n += 1
-            bak = split_lessons.backup_target(
-                path, "%s.unreadable-%s-%d.bak" % (path.name, stamp, n))
-        bak.write_text(raw, encoding="utf-8")
+        # 🟢 Since 2026-09-18 the name is CLAIMED (`claim_backup`), not merely
+        # checked: an exists-then-write can still lose the race between two
+        # threads, and the counter now reads `-2` like every other backup here.
+        fd, bak = claim_backup(lambda n: split_lessons.backup_target(
+            path, "%s.unreadable-%s%s.bak" % (path.name, stamp, n)))
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write(raw)
         line = ("UNREADABLE sidecar %s (%s), kept %d bytes as %s -- it is being "
                 "treated as EMPTY, so anything it held is not in what the "
                 "reader sees" % (path.name, why, len(raw), bak.name))
@@ -3505,8 +3840,9 @@ def keep_the_losing_copy(cfg, path, kind, doc_id, count, after, keys=None):
     # audit, the QA log, the changelog and PROJECT-NOTES, and ONE place to look
     # is worth more to somebody recovering data than a tidier word. The log
     # line is what says which trigger fired.
-    bak = split_lessons.backup_target(
-        path, "%s.shrank-%s.bak" % (path.name, stamp))
+    def name_at(n):
+        return split_lessons.backup_target(
+            path, "%s.shrank-%s%s.bak" % (path.name, stamp, n))
     if unknown:
         why = "key check FAILED at %d" % was
     elif was > now:
@@ -3526,8 +3862,13 @@ def keep_the_losing_copy(cfg, path, kind, doc_id, count, after, keys=None):
         # word, which is where that content belongs.
         why = "DROPPED %d of %d" % (len(lost), was)
     try:
-        bak.write_text(json.dumps(before, indent=2, ensure_ascii=False),
-                       encoding="utf-8")
+        # 🔴 Claimed, not just named: this guard runs OUTSIDE `WRITE_LOCK`
+        # (its callers take the lock inside `write_json_sidecar`, after it),
+        # so two saves of one sidecar in one second could pick the same name
+        # and the second would destroy the copy taken for the first.
+        fd, bak = claim_backup(name_at)
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            out.write(json.dumps(before, indent=2, ensure_ascii=False))
         log(cfg, "%s %s %s, kept %s" % (kind, doc_id, why, bak.name))
         return bak
     except OSError as exc:
@@ -4638,6 +4979,24 @@ def resources_root(cfg):
     return Path(cfg.get("resources_dir") or (REPO / "resources")).expanduser()
 
 
+def share_destination(cfg):
+    """The folder the share button's zip lands in.
+
+    `share_dest` when the config sets it, else the Desktop, else the home
+    folder: the last two are what `/api/share` always did, and a config that
+    says nothing gets exactly that. The configured path need not exist yet;
+    `lesson_packs.export` creates what it writes into. See `DEFAULT_CONFIG`
+    for why the key exists at all.
+    """
+    want = str(cfg.get("share_dest") or "").strip()
+    if want:
+        return Path(want).expanduser()
+    dest = Path.home() / "Desktop"
+    if not dest.is_dir():
+        dest = Path.home()
+    return dest
+
+
 def resource_url(cfg, doc_id, name):
     """The address a browser asks for one attachment at.
 
@@ -4929,16 +5288,20 @@ def write_resource(cfg, doc_id, name, data):
 
     # A second attachment of the same name is a new version, not an error, but the
     # old one is not thrown away silently: same .bak convention as everything else
-    # in this project.
+    # in this project. 🔴 Until 2026-09-18 that sentence was false inside one
+    # second: the rename went OVER the backup the first attachment had just
+    # made. `set_aside` claims the name first, so both versions stay.
+    bak = None
     with WRITE_LOCK:
         if target.exists():
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            target.replace(split_lessons.backup_target(
-                target, "%s.%s.bak" % (target.name, stamp)))
+            bak = set_aside(target)
         target.write_bytes(data)
-    return {"ok": True, "doc": doc_id, "name": safe, "size": len(data),
-            "kind": resource_kind(target.suffix),
-            "url": resource_url(cfg, doc_id, safe)}
+    out = {"ok": True, "doc": doc_id, "name": safe, "size": len(data),
+           "kind": resource_kind(target.suffix),
+           "url": resource_url(cfg, doc_id, safe)}
+    if bak is not None:
+        out["backup"] = bak.name        # the file actually written, never a guess
+    return out
 
 
 def delete_resource(cfg, doc_id, name):
@@ -4947,11 +5310,10 @@ def delete_resource(cfg, doc_id, name):
         raise ValueError("no such file")
     # 🔴 Renamed, never unlinked. He may have attached the only copy of something,
     # and this button is one tap away from a list on a phone.
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     with WRITE_LOCK:
-        target.replace(split_lessons.backup_target(
-            target, "%s.%s.bak" % (target.name, stamp)))
-    return {"ok": True, "doc": doc_id, "name": target.name, "removed": True}
+        bak = set_aside(target)
+    return {"ok": True, "doc": doc_id, "name": target.name, "removed": True,
+            "backup": bak.name}
 
 
 def materials_path(cfg):
@@ -5107,19 +5469,30 @@ def local_materials_dir(cfg):
 
 
 def local_material_file(folder, doc_id, word):
-    """`<DOC> - <Word> (whatever).pdf` in that folder, or None.
+    """The CURRENT `<DOC> - <Word> (whatever).pdf` in that folder, or None.
 
     Matched by PREFIX because the skill keeps the download's original name in
     parentheses after the standard part, so the tail is not predictable. The
-    match is case-insensitive and the first hit in sorted order wins, so two
-    files for one part behave the same way on every run rather than depending on
-    the order the filesystem happens to hand them back."""
+    match is case-insensitive. Since 2026-09-18 the prefix test is
+    `material_names.is_kind`, shared with the pack copier, so the pane and a
+    shared pack cannot disagree about what KIND a file is: they did, and a
+    renamed transcript was served here and silently left out of a pack.
+
+    🔴 A file whose name marks it superseded is not a candidate. When a transcript
+    is corrected its old copy stays beside it renamed `... superseded <date> ...`
+    (nothing is deleted), and both match the prefix. Until 2026-09-17 the
+    corrected one won only because `(` sorts before `s`, which is determinism
+    and not correctness: the pane would have shown the OLD words the day a name
+    sorted the other way, with nothing erroring. `material_names.current` is the
+    one sentence, shared with the captions and the pack copier. Among the
+    candidates the first in sorted order wins, so two current files for one part
+    behave the same way on every run."""
     if folder is None:
         return None
-    want = ("%s - %s" % (doc_id, word)).lower()
     try:
-        hits = sorted(q for q in folder.iterdir()
-                      if q.is_file() and q.name.lower().startswith(want))
+        hits = material_names.current(
+            q for q in folder.iterdir()
+            if q.is_file() and material_names.is_kind(q.name, word, doc_id))
     except OSError:
         return None
     return hits[0] if hits else None
@@ -6665,9 +7038,19 @@ def table_to_html(rows, open_tag, indent):
 
 
 def backup_note(path):
+    """A dated copy of a lesson page before an edit lands on it, named so that
+    a second edit inside the same second cannot take the first copy's name:
+    the survivor of that collision held the INTERMEDIATE page, and the text
+    from before either edit, the one a person restoring wants, was gone. The
+    three callers run under `WRITE_LOCK`, so the claim is against the clock
+    here rather than against a thread. Bytes, not text, so the copy is the
+    file and not a re-encoding of it."""
+    path = Path(path)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    bak = split_lessons.backup_target(path, "%s.%s.bak" % (path.name, stamp))
-    bak.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    fd, bak = claim_backup(lambda n: split_lessons.backup_target(
+        path, "%s.%s%s.bak" % (path.name, stamp, n)))
+    with os.fdopen(fd, "wb") as out, open(path, "rb") as src:
+        shutil.copyfileobj(src, out)
     return bak
 
 
@@ -7063,15 +7446,10 @@ House rules this note is written to, which the replacement must also obey:
 """
 
 
-def do_rewrite(cfg, payload):
-    if not cfg.get("explain_enabled"):
-        return {"ok": False, "error": "The Claude CLI is switched off in the config."}
-    binary = cfg.get("claude_bin") or ""
-    if not binary or not Path(binary).exists():
-        from shutil import which
-        binary = which("claude") or ""
-    if not binary:
-        return {"ok": False, "error": "The Claude Code CLI was not found."}
+def do_rewrite(cfg, payload, host=HOST_HERE):
+    kind, why = ask_backend(cfg, host)
+    if not kind:
+        return {"ok": False, "error": why}
 
     is_table = payload.get("target") == "table"
     is_range = payload.get("target") == "range"
@@ -7099,28 +7477,10 @@ def do_rewrite(cfg, payload):
         course=course, current=current, instruction=instruction,
         context=context or "(no surrounding context)")
 
-    cwd = cfg["cache_dir"] / "explain-cwd"
-    cwd.mkdir(parents=True, exist_ok=True)
-    try:
-        proc = subprocess.run(
-            [binary, "-p", prompt, "--model", chosen_model(cfg)],
-            cwd=str(cwd), capture_output=True, text=True,
-            timeout=int(cfg["explain_timeout"]),
-        )
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "Timed out waiting for the rewrite."}
-    except OSError as err:
-        return {"ok": False, "error": "Could not run the CLI: %s" % err}
-
-    if proc.returncode != 0:
-        detail = (proc.stderr or "").strip().splitlines()
-        return {"ok": False, "error": detail[-1] if detail else "The CLI exited with an error."}
-
-    text = (proc.stdout or "").strip()
-    if not text:
-        return {"ok": False, "error": "Empty answer."}
-    if "—" in text:
-        text = text.replace("—", ", ")
+    out = ask_claude(cfg, prompt, "the rewrite", host)
+    if not out.get("ok"):
+        return out
+    text = out["text"]
     if is_range:
         return {"ok": True, "text": text, "model": chosen_model(cfg)}
     if is_table:
@@ -8743,6 +9103,8 @@ WIZARD_PAGE = """<!-- study-wizard -->
        institution.</p>
     <div class="row">
       <button type="button" id="sharego">Make the share file</button>
+      <label><input type="checkbox" id="sharecaps"> Include the caption cues
+        (the lecturer's words with timings; nothing of yours)</label>
     </div>
     <p class="says" id="ssays" role="status"></p>
     <p><b>Then send the .zip however you like.</b> The person you send it to
@@ -9064,14 +9426,16 @@ WIZARD_PAGE = """<!-- study-wizard -->
 
   /* ---- share: one button, one zip, and the page says where it landed ---- */
   var shareBtn = document.getElementById('sharego');
+  var shareCaps = document.getElementById('sharecaps');
   var ssays = document.getElementById('ssays');
   shareBtn.addEventListener('click', function () {
     shareBtn.disabled = true;
     ssays.textContent = 'Packing the course\u2026';
     ssays.classList.remove('bad');
     var headers = window.STUDYTOKEN ? window.STUDYTOKEN.headers({}) : {};
-    fetch('/api/share?module=' + encodeURIComponent(%(codejs)s),
-          { method: 'POST', headers: headers })
+    var q = '/api/share?module=' + encodeURIComponent(%(codejs)s);
+    if (shareCaps && shareCaps.checked) q += '&captions=1';
+    fetch(q, { method: 'POST', headers: headers })
       .then(function (r) { return r.json(); })
       .then(function (r) {
         shareBtn.disabled = false;
@@ -9085,7 +9449,10 @@ WIZARD_PAGE = """<!-- study-wizard -->
         var msg = 'Ready: ' + (r.zip || '') + ', holding ' +
           (rep.lessons || 0) + ' lessons, ' + (rep.glossary || 0) +
           ' glossary terms, ' + (rep.readings || 0) + ' readings and ' +
-          (rep.mistakes || 0) + ' mistakes-page entries.';
+          (rep.mistakes || 0) + ' mistakes-page entries' +
+          (rep.captions ? ', and captions for ' + rep.captions + ' lecture' +
+            (rep.captions === 1 ? '' : 's') + ' (' + (rep.cues || 0) + ' cues)' : '') +
+          '.';
         /* Said here rather than left to be discovered: the recipient's Materials
            pane will have the lecture link and not the slides, and that is the
            design, not a fault. */
@@ -10321,7 +10688,10 @@ WIZ_CAPTIONS = ('Build the captions for this course: run '
                 'must be the lecturer\'s own, timed against the recording. It '
                 'fetches one lecture at a time and pauses between, so a whole '
                 'course runs for tens of minutes; show me its report when it '
-                'finishes.')
+                'finishes. If it says the caption engine is not installed, run '
+                'server/caption_course.py --install first: a one-time download '
+                'of a few hundred MB, and it prints the size before it starts; '
+                'then build.')
 
 WIZ_READINGS_LOCAL = ('Summarise the core readings I already have downloaded: '
                       'the folder is: <paste the readings folder here>. Run '
@@ -11123,6 +11493,10 @@ SETTINGS_PAGE = """<!-- study-settings -->
   .capstate.missing, .capstate.blocked { color:var(--muted); }
   .capwhy { color:var(--muted); overflow-wrap:anywhere; }
   .capsum { margin:12px 0 0; font-size:.84rem; color:var(--ink-soft); }
+  .caplog { margin:12px 0 0; max-height:12em; overflow:auto; padding:10px 12px;
+            font:.74rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+            color:var(--muted); background:var(--surface); border:1px solid var(--rule);
+            border-radius:9px; white-space:pre-wrap; overflow-wrap:anywhere; }
   .pathrow select { flex:1 1 200px; min-width:0; font:inherit; font-size:.86rem;
                     padding:10px 12px; border:1px solid var(--rule); border-radius:9px;
                     background:var(--paper); color:var(--ink); }
@@ -11149,6 +11523,27 @@ SETTINGS_PAGE = """<!-- study-settings -->
     <h2>Model</h2>
     <p class="hint">Which model answers. %(explain)s</p>
     <div class="opts" id="model"></div>
+  </section>
+
+  <section>
+    <h2>Reaching Claude</h2>
+    <p class="hint">Explain, the chat beside a lesson and Rewrite need one of two
+       routes: <b>Claude Code</b> installed and signed in on %(host)s, which
+       uses the subscription you already pay for; or an <b>API key</b> of your
+       own, where each question is charged to that key. %(route)s</p>
+    <div class="opts" id="backend"></div>
+    <h3>API key</h3>
+    <p class="hint">Kept in the config file on %(host)s, which only its owner
+       can read. It is never shown again here, never written to the log, and
+       never sent anywhere but api.anthropic.com. %(keystate)s</p>
+    <div class="pathrow">
+      <input type="password" id="apikey" value="" placeholder="paste a key"
+             spellcheck="false" autocomplete="off" autocapitalize="off"
+             aria-label="API key">
+      <button type="button" id="apikeysave">Save</button>
+      <button type="button" id="apikeyclear" class="plain">Remove</button>
+    </div>
+    <p class="says" id="keysays" role="status"></p>
   </section>
 
   %(vault)s
@@ -11202,6 +11597,7 @@ SETTINGS_PAGE = """<!-- study-settings -->
   if (!sel) { return; }
   var list = document.getElementById('caplist'), sum = document.getElementById('capsum');
   var go = document.getElementById('capgo'), says = document.getElementById('capsays');
+  var inst = document.getElementById('capinstall'), log = document.getElementById('caplog');
   var timer = null;
 
   function tellCap(msg, bad) {
@@ -11239,11 +11635,32 @@ SETTINGS_PAGE = """<!-- study-settings -->
       row.appendChild(n); row.appendChild(st); row.appendChild(why);
       list.appendChild(row);
     });
-    var miss = d.missing_tools || [];
-    if (miss.length) {
+    var miss = d.missing_tools || [], hints = d.hints || {}, eng = d.install || {};
+    /* The engine is the one missing tool this page can put right itself. While
+       an install is going the tool's own output is shown, and when it is done
+       the ordinary branches below take over on the next poll. */
+    inst.hidden = true; log.hidden = true;
+    var tail = (eng.log_tail || []).join('\\n');
+    if (eng.running) {
+      go.disabled = true; inst.hidden = false; inst.disabled = true;
+      log.hidden = false; log.textContent = tail;
+      tellCap('Installing the caption engine. It downloads a few hundred MB, once; '
+              + 'you can leave this page.');
+    } else if (d.install_needed) {
+      go.disabled = true; inst.hidden = false; inst.disabled = false;
+      if (eng.state === 'failed') {
+        log.hidden = false; log.textContent = tail;
+        tellCap('The install did not finish: ' + (eng.error || 'see its last lines above')
+                + '. You can try again.', true);
+      } else {
+        tellCap('The caption engine is not installed on this machine. Installing it '
+                + 'downloads a few hundred MB, once, and nothing happens until you click.');
+      }
+    } else if (miss.length) {
       go.disabled = true;
+      var help = miss.map(function (k) { return hints[k]; }).filter(Boolean);
       tellCap('Captions cannot be built on this machine: ' + miss.join(', ')
-              + ' not found.', true);
+              + ' not found.' + (help.length ? ' ' + help.join(' ') : ''), true);
     } else if (d.running) {
       go.disabled = true;
       tellCap('Building now. It takes a while, and you can leave this page.');
@@ -11257,7 +11674,7 @@ SETTINGS_PAGE = """<!-- study-settings -->
     clearTimeout(timer);
     /* Only while something is actually going: a page left open on a finished
        course must not poll a subprocess for ever. */
-    if (d.running) { timer = setTimeout(load, 5000); }
+    if (d.running || eng.running) { timer = setTimeout(load, 5000); }
   }
 
   function load() {
@@ -11287,6 +11704,23 @@ SETTINGS_PAGE = """<!-- study-settings -->
         load();
       })
       .catch(function () { tellCap('Could not reach the server.', true); go.disabled = false; });
+  });
+  inst.addEventListener('click', function () {
+    inst.disabled = true;
+    tellCap('Starting the install\u2026');
+    fetch('/api/captions/install',
+          { method: 'POST', headers: window.STUDYTOKEN.headers({}) })
+      .then(function (r) {
+        if (r.status === 401) { window.STUDYTOKEN.ask(function () { inst.disabled = false; }); return null; }
+        return r.json();
+      })
+      .then(function (d) {
+        if (!d) { return; }
+        if (!d.ok) { tellCap(d.error || 'It would not start.', true); inst.disabled = false; return; }
+        tellCap('Installing.');
+        load();
+      })
+      .catch(function () { tellCap('Could not reach the server.', true); inst.disabled = false; });
   });
   sel.addEventListener('change', load);
   load();
@@ -11346,7 +11780,71 @@ SETTINGS_PAGE = """<!-- study-settings -->
     row('model', MODELS, 'model');
     var v = document.getElementById('vaultbox');
     if (v) { v.checked = state.vaultEnabled !== false; }
+    paintBackend();
   }
+
+  /* ---- the route to Claude ----------------------------------------------
+     Drawn like the rows above and written like the machine paths below: it
+     lives in the config file, not the settings store, but unlike the paths it
+     takes effect at once, so nothing here says "restart". The key field is
+     write-only on purpose: the page never learns the key, only whether one
+     is set. */
+  var BACKENDS = [
+    { id: 'auto', label: 'Whichever is set up' },
+    { id: 'cli', label: 'Claude Code only' },
+    { id: 'api', label: 'API key only' }
+  ];
+  var keysays = document.getElementById('keysays');
+  function tellK(msg, bad) {
+    if (!keysays) return;
+    keysays.textContent = msg || '';
+    keysays.classList.toggle('bad', !!bad);
+  }
+  function paintBackend() {
+    var host = document.getElementById('backend');
+    if (!host) return;
+    host.innerHTML = '';
+    BACKENDS.forEach(function (it) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = it.label;
+      b.setAttribute('aria-pressed', String((state.askBackend || 'auto') === it.id));
+      b.addEventListener('click', function () {
+        tellK('Saving\\u2026');
+        machine({ askBackend: it.id }, function (r) {
+          if (!r.ok) { tellK(r.error || 'That did not save.', true); return; }
+          state.askBackend = it.id;
+          paintBackend();
+          tellK(r.message + (r.explain ? '' : ' Asking is off: ' + r.explainWhy));
+        });
+      });
+      host.appendChild(b);
+    });
+  }
+  var ksave = document.getElementById('apikeysave');
+  var kclear = document.getElementById('apikeyclear');
+  var kbox = document.getElementById('apikey');
+  function sendKey(value) {
+    tellK('Saving\\u2026');
+    machine({ apiKey: value }, function (r) {
+      if (!r.ok) { tellK(r.error || 'That did not save.', true); return; }
+      kbox.value = '';
+      tellK(r.message + (r.explain
+        ? (r.backend === 'api' ? ' The API answers from now on.' : ' Claude Code still answers first.')
+        : ' Asking is off: ' + r.explainWhy));
+    });
+  }
+  if (ksave) {
+    ksave.addEventListener('click', function () {
+      var v = kbox.value.trim();
+      if (!v) { kbox.focus(); return tellK('Paste a key first, or use Remove.', true); }
+      sendKey(v);
+    });
+    kbox.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); ksave.click(); }
+    });
+  }
+  if (kclear) { kclear.addEventListener('click', function () { sendKey(''); }); }
   paint();
 
   var v = document.getElementById('vaultbox');
@@ -12286,6 +12784,10 @@ class Handler(BaseHTTPRequestHandler):
         m = self.MODULE_PATH_RE.match(path or "")
         return m.group(1) if m else None
 
+    def host_word(self):
+        """The word for the machine this server runs on, for THIS reader."""
+        return host_word(self.client_address[0])
+
     def _use_module(self, want=None):
         """Point this request's cfg at a module. Falls back to the default one,
         so a request that names nothing behaves exactly as it did before modules
@@ -12654,9 +13156,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error":
                                    "no course called %r" % want}, 404)
             import lesson_packs
-            dest = Path.home() / "Desktop"
-            if not dest.is_dir():
-                dest = Path.home()
+            dest = share_destination(self.cfg)
+            # 🟢 The one component the page offers beyond the prose: the caption
+            # cues, the lecturer's words with timings and nothing of the
+            # reader's. OFF unless the checkbox says so, because forgetting a
+            # box should under-share (the same default `--with-captions` has).
+            # The manager's pick for the 2026-09-17 sharing entry.
+            captions = (query.get("captions") or [""])[0] in ("1", "true", "yes")
             try:
                 # 🔴 `with_drive` is left at its default of False: a shared course
                 # carries the KEATS links (which gate on the recipient's own
@@ -12664,7 +13170,11 @@ class Handler(BaseHTTPRequestHandler):
                 # ruling, 2026-08-28. There is deliberately no way to turn it on
                 # from the page: the flag exists for `lesson_packs.py` copying
                 # between one person's own installs.
-                zip_path, report = lesson_packs.export_course(self.cfg, dest)
+                if captions:
+                    zip_path, report = lesson_packs.export_course(
+                        self.cfg, dest, contents={"captions": True})
+                else:
+                    zip_path, report = lesson_packs.export_course(self.cfg, dest)
             except lesson_packs.Problem as err:
                 return self._json({"ok": False, "error": str(err)}, 400)
             log(self.cfg, "share %s -> %s" % (mid, zip_path))
@@ -12723,6 +13233,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(caption_ask(self.base_cfg, ["--start", mid],
                                           CAPTION_START_TIMEOUT))
 
+        if path == "/api/captions/install":
+            # The caption engine (torch and the forced aligner, a few hundred
+            # MB) installed ONCE into ~/.kcl-study/captions-venv, in its own
+            # process group exactly as a build is, and only on a person's
+            # click: this is the second of the two verbs that start work here,
+            # and there is no third. Course-independent, so no module.
+            self._drain_body()
+            self._use_module(None)
+            return self._json(caption_ask(self.base_cfg, ["--install-start"],
+                                          CAPTION_START_TIMEOUT))
+
         try:
             payload = self._body()
         except (ValueError, UnicodeDecodeError):
@@ -12743,7 +13264,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(out)
 
             if path == "/api/explain":
-                out = do_ask(self.cfg, payload)
+                out = do_ask(self.cfg, payload, self.host_word())
                 log(self.cfg, "ask %r ok=%s"
                     % (str(payload.get("question") or payload.get("term") or "")[:60], out.get("ok")))
                 return self._json(out, 200 if out.get("ok") else 503)
@@ -12825,11 +13346,27 @@ class Handler(BaseHTTPRequestHandler):
                         # way nothing was written, so nothing is saved and no
                         # backup is made.
                         return self._json(out, 200)
+                elif "apiKey" in payload or "askBackend" in payload:
+                    # The route to Claude and the key for it. Written to the
+                    # file AND into the running config, so the next question
+                    # uses them: nothing here needs a restart. 🔴 The key is
+                    # never in the reply, the status or the log line below;
+                    # the log names the FIELD.
+                    bits = []
+                    if "askBackend" in payload:
+                        bits.append(set_ask_backend(raw, payload["askBackend"]))
+                        self.base_cfg["ask_backend"] = raw["ask_backend"]
+                    if "apiKey" in payload:
+                        bits.append(set_api_key(raw, payload["apiKey"]))
+                        self.base_cfg["api_key"] = raw["api_key"]
+                    out["message"] = " ".join(bits)
+                    out.update(explain_status(self.base_cfg, self.host_word()))
                 else:
                     raise ValueError("nothing to change")
                 backup = save_raw_config(raw)
                 log(self.cfg, "machine config changed (%s), previous kept at %s"
-                    % (", ".join(sorted(k for k in ("vaultCourses", "coursesDir")
+                    % (", ".join(sorted(k for k in ("vaultCourses", "coursesDir",
+                                                    "apiKey", "askBackend")
                                         if k in payload)), backup.name))
                 out["backup"] = backup.name
                 return self._json(out)
@@ -12931,13 +13468,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(out)
 
             if path == "/api/followup":
-                out = do_ask(self.cfg, payload)
+                out = do_ask(self.cfg, payload, self.host_word())
                 log(self.cfg, "followup %r ok=%s"
                     % (str(payload.get("question", ""))[:60], out.get("ok")))
                 return self._json(out, 200 if out.get("ok") else 503)
 
             if path == "/api/rewrite":
-                out = do_rewrite(self.cfg, payload)
+                out = do_rewrite(self.cfg, payload, self.host_word())
                 log(self.cfg, "rewrite %s block=%s ok=%s"
                     % (payload.get("doc"), payload.get("b"), out.get("ok")))
                 return self._json(out, 200 if out.get("ok") else 503)
@@ -12959,11 +13496,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _api_get(self, path, query):
         if path == "/api/status":
-            from shutil import which
-            binary = self.cfg.get("claude_bin") or which("claude") or ""
+            st = explain_status(self.cfg, self.host_word())
             return self._json({
                 "ok": True,
-                "explain": bool(self.cfg.get("explain_enabled")) and bool(binary),
+                "explain": st["explain"],
+                "backend": st["backend"],
+                "explainWhy": st["explainWhy"],
                 "model": self.cfg.get("explain_model"),
                 "vaultEnabled": vault_on(self.cfg),
                 "vault": str(self.cfg["vault_courses"]),
@@ -13206,7 +13744,7 @@ class Handler(BaseHTTPRequestHandler):
             # A whole shared course as one dragged file (EH's design,
             # 2026-08-28): lesson packs plus the course pack, zipped by the
             # Share button on the other person's setup page.
-            return self._import_zip(data, name)
+            return self._import_zip(data, name, force)
         if split_lessons.META_OPEN not in data[:8192].decode("utf-8", "replace"):
             handed = self._maybe_course_pack(data)
             if handed is None:
@@ -13233,7 +13771,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error":
                                    "could not stage it: %s" % err}, 500)
             try:
-                done, skipped, merged = lesson_packs.import_packs(
+                done, skipped, merged, _ = lesson_packs.import_packs(
                     {"notes_dir": str(folder)}, [str(staged)],
                     force=force, quiet=True)
             except lesson_packs.Problem as err:
@@ -13283,53 +13821,52 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"ok": True, "kind": "course-pack", "counts": counts,
                            "message": msg})
 
-    def _import_zip(self, data, name):
-        """A shared course, one dragged file. Unpacked flat into a temp folder
-        (member names are reduced to basenames, so a hostile path cannot leave
-        it), then imported by the same two functions the pieces use alone."""
+    def _import_zip(self, data, name, force=False):
+        """A shared course, one dragged file. Unpacked by
+        `lesson_packs.unpack_shared_zip` (every member flat under its basename,
+        except a `captions/<DOC>/` cue file which keeps that one level, so a
+        hostile path cannot leave the temp folder), then imported by the same
+        `import_packs` the command line uses: lessons, the `captions/` tree and
+        the course pack, in one call.
+
+        🔴 Until 2026-09-17 the captions never arrived. This unpacked every
+        member to its basename, which threw away `captions/<DOC>/`, and then
+        swallowed `import_packs`'s refusal in a bare `except: pass`, so a zip of
+        nothing this recognised reported "0 lessons in" as a success. Now a
+        refusal is a 400 that says why."""
         import io
         import tempfile
         import zipfile
         import lesson_packs
         counts = {"lessons": 0, "skipped": 0, "links": 0,
-                  "glossary": 0, "readings": 0, "mistakes": 0, "core_ideas": 0}
+                  "glossary": 0, "readings": 0, "mistakes": 0, "core_ideas": 0,
+                  "captions": 0, "captions_skipped": 0}
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 tmpdir = Path(tmp)
-                packs = []
-                with zipfile.ZipFile(io.BytesIO(data)) as z:
-                    for m in z.infolist():
-                        base = os.path.basename(m.filename)
-                        if m.is_dir() or not base or base.startswith("."):
-                            continue
-                        if m.file_size > LESSON_MAX_BYTES:
-                            return self._json(
-                                {"ok": False, "error": "%s inside the zip is "
-                                 "too big to be a lesson" % base[:60]}, 400)
-                        (tmpdir / base).write_bytes(z.read(m))
-                        packs.append(base)
-                if not packs:
+                try:
+                    members = lesson_packs.unpack_shared_zip(
+                        io.BytesIO(data), tmpdir, max_bytes=LESSON_MAX_BYTES)
+                except lesson_packs.Problem as err:
+                    return self._json({"ok": False, "error": str(err)}, 400)
+                if not members:
                     return self._json({"ok": False,
                                        "error": "that zip is empty"}, 400)
                 try:
-                    done, skipped, merged = lesson_packs.import_packs(
+                    done, skipped, merged, extras = lesson_packs.import_packs(
                         {"notes_dir": str(self.cfg["notes_dir"])},
-                        [str(tmpdir)], quiet=True)
-                    counts["lessons"], counts["skipped"] = len(done), len(skipped)
-                    counts["links"] = merged
-                except lesson_packs.Problem:
-                    pass    # a zip of only sidecars is legitimate
-                for f in tmpdir.glob("*.json"):
-                    try:
-                        doc = json.loads(f.read_text(encoding="utf-8"))
-                    except ValueError:
-                        continue
-                    if isinstance(doc, dict) and doc.get("course_pack"):
-                        got = lesson_packs.import_course_pack(
-                            self.cfg["notes_dir"], doc)
-                        for k in ("glossary", "readings", "mistakes",
-                                  "core_ideas"):
-                            counts[k] += got[k]
+                        [str(tmpdir)], force=force, quiet=True)
+                except lesson_packs.Problem as err:
+                    # The refusal names the folder it looked in, which here is
+                    # a temp directory nobody can open: say the zip's name.
+                    return self._json({"ok": False, "error": str(err).replace(
+                        str(tmpdir), name or "that zip")}, 400)
+                counts["lessons"], counts["skipped"] = len(done), len(skipped)
+                counts["links"] = merged
+                counts["captions"] = len(extras["captions"])
+                counts["captions_skipped"] = len(extras["captions_skipped"])
+                for k in ("glossary", "readings", "mistakes", "core_ideas"):
+                    counts[k] += extras["course"][k]
         except zipfile.BadZipFile:
             return self._json({"ok": False,
                                "error": "%s is not a zip this can read"
@@ -13348,6 +13885,14 @@ class Handler(BaseHTTPRequestHandler):
                         % (counts["core_ideas"],
                            "" if counts["core_ideas"] == 1 else "s",
                            "" if counts["core_ideas"] == 1 else "s"))
+        if counts["captions"]:
+            bits.append("captions for %d lecture%s"
+                        % (counts["captions"],
+                           "" if counts["captions"] == 1 else "s"))
+        if counts["captions_skipped"]:
+            bits.append("captions for %d lecture%s already here and left alone"
+                        % (counts["captions_skipped"],
+                           "" if counts["captions_skipped"] == 1 else "s"))
         return self._json({"ok": True, "kind": "course-zip", "counts": counts,
                            "message": "; ".join(bits) + "."})
 
@@ -14569,9 +15114,9 @@ class Handler(BaseHTTPRequestHandler):
         own sheet uses, so this is a second view rather than a second copy."""
         esc = html_mod.escape
         cur = read_settings(self.base_cfg)
-        from shutil import which
-        binary = self.base_cfg.get("claude_bin") or which("claude") or ""
-        explain_on = bool(self.base_cfg.get("explain_enabled")) and bool(binary)
+        st = explain_status(self.base_cfg, self.host_word())
+        explain_on = st["explain"]
+        here = self.host_word()
 
         pal = []
         for entry in cur.get("palette", []):
@@ -14688,9 +15233,11 @@ class Handler(BaseHTTPRequestHandler):
             'course takes a while; you can leave the page while it runs.</p>'
             '<div class="pathrow">'
             '<select id="capcourse" aria-label="Course">%s</select>'
+            '<button id="capinstall" hidden>Install the caption engine</button>'
             '<button id="capgo" disabled>Build the missing captions</button></div>'
             '<p class="capsum" id="capsum"></p>'
             '<div class="caplist" id="caplist"></div>'
+            '<pre class="caplog" id="caplog" hidden></pre>'
             '<p class="says" id="capsays" role="status"></p></section>'
             % "".join(cap_opts)) if cap_opts else ""
 
@@ -14699,9 +15246,14 @@ class Handler(BaseHTTPRequestHandler):
             "navbar": nav_bar(self.base_cfg, here="Settings"),
             "back": "/" if multi else "/",
             "backlabel": "All your courses" if multi else "Back to the lessons",
-            "explain": ("" if explain_on else
-                        "Explain is off on this machine, because the Claude "
-                        "command was not found."),
+            "explain": ("" if explain_on else "Asking is off: " + st["explainWhy"]),
+            "host": esc(here),
+            "route": esc({"cli": "Right now Claude Code on %s answers." % here,
+                          "api": "Right now the API answers, with the key set here.",
+                          "": "Right now asking is off. " + st["explainWhy"]
+                          }[st["backend"]]),
+            "keystate": ("A key is set." if api_key(self.base_cfg)
+                         else "No key is set."),
             "palette": "".join(pal) or '<span class="sw">none yet</span>',
             "root": esc(str(self.base_cfg.get("courses_dir")
                             or self.base_cfg["notes_dir"])),
@@ -14721,7 +15273,9 @@ class Handler(BaseHTTPRequestHandler):
             "state": json.dumps({"level": cur.get("level"),
                                  "panelSize": cur.get("panelSize"),
                                  "model": cur.get("model"),
-                                 "vaultEnabled": cur.get("vaultEnabled", True)}),
+                                 "vaultEnabled": cur.get("vaultEnabled", True),
+                                 "askBackend": (self.base_cfg.get("ask_backend")
+                                                or "auto")}),
         }
         return self._text(page, 200, "text/html; charset=utf-8")
 
@@ -15292,7 +15846,9 @@ def main():
     ap.add_argument("--config", default=None, help="config path")
     args = ap.parse_args()
 
-    path = Path(args.config).expanduser() if args.config else CONFIG_PATH
+    # The flag names the config this process reads AND writes: bound into the
+    # module before anything loads or saves, never a local variable again.
+    path = bind_config_path(args.config)
     if args.init:
         return init_config(path)
 

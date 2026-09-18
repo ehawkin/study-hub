@@ -37,6 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import study_server as S                                        # noqa: E402
+import material_names                                           # noqa: E402
 
 WEEK_RE = re.compile(r"(?:^|[^A-Za-z0-9])W(\d{1,2})(?=[^0-9]|$)", re.I)
 NUM_RE = re.compile(r"\d+")
@@ -109,6 +110,14 @@ def kind_of(stem, filename):
     whatever its old name mentioned.
     """
     head = re.sub(r"\s*\([^()]*\)\s*$", "", stem).lower()
+    # A file kept only as history is not study material. When a transcript is
+    # corrected, the old one stays beside it renamed `... superseded <date> ...`
+    # (the owner's rule: nothing is deleted); merging both would put the wrong
+    # words and the right ones into one book, one after the other. This was the
+    # first reader to say so; since 2026-09-17 the sentence lives in
+    # `material_names` and the other three readers say it too.
+    if material_names.is_superseded(filename):
+        return None
     for name in (head, filename.lower()):
         for word, kind in KIND_WORDS:
             if word in name:

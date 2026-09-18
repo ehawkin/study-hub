@@ -9,9 +9,11 @@ without having to run their own scan and download the KEATS module, as long as
 they have access to KEATS."
 
     python3 server/lesson_packs.py --export W3-T3-P4 --to ~/Desktop/share
-    python3 server/lesson_packs.py --export-all --to ~/Desktop/share
-    python3 server/lesson_packs.py --import ~/Desktop/share          # a folder
+    python3 server/lesson_packs.py --export-all --to ~/Desktop/share   # one zip: every lesson
+                                                    # plus the course pack, like the Share button
+    python3 server/lesson_packs.py --import ~/Desktop/share          # a folder, or a .zip
     python3 server/lesson_packs.py --import one.lesson.html --no-links
+    python3 server/lesson_packs.py --module PSY101 --export-all --preset captioned --to ~/Desktop/share
 
 **A pack is one file, and it is the lesson.** The content/reader split already
 made a lesson file the note and nothing else, so a pack is that file with one
@@ -49,6 +51,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import split_lessons as SPLIT
+import material_names
 
 CONFIG_PATH = Path(os.environ.get("KCL_STUDY_CONFIG", "~/.kcl-study/config.json")).expanduser()
 
@@ -345,9 +348,17 @@ def copy_captions(folder, out_dir, docs=None):
     return lectures, cues
 
 
-# The naming convention the downloader writes, and the only thing that says
-# which kind a file is. `<DOC> - Slides (...).pdf`, `<DOC> - Transcript (...).pdf`.
-MATERIAL_MARKER = {"slides": " - Slides (", "transcripts": " - Transcript ("}
+# The word the downloader writes after the part id, per kind: `<DOC> - Slides
+# (...).pdf`, `<DOC> - Transcript (...).pdf`. Whether a file IS of a kind is
+# `material_names.is_kind`'s question, the same test the reader's pane makes.
+# 🔴 Until 2026-09-18 this table held the substring `" - Transcript ("` and the
+# copier matched it: a naming convention (the course's own title following the
+# word immediately) smuggled into a type test. A `<DOC> - Transcript v2 (...)`
+# name was served by the pane and used by the captions and left out of the pack,
+# which reported one transcript fewer with no error. Currency is a separate
+# question (`material_names.is_superseded`, asked since 2026-09-17), and the
+# two are asked one after the other so neither can hide inside the other.
+MATERIAL_WORD = {"slides": "Slides", "transcripts": "Transcript"}
 
 
 def copy_local_materials(cfg, out_dir, kinds, docs=None):
@@ -362,15 +373,18 @@ def copy_local_materials(cfg, out_dir, kinds, docs=None):
     wanted = [k for k in MATERIAL_KINDS if kinds.get(k)]
     if not wanted or not root.is_dir():
         return {}
+    # The parts in the pack, matched whole (`W1-T1-P1` is not `W1-T1-P10`), as
+    # the captions copier already matched them; None means every part.
+    parts = list(docs) if docs is not None else [None]
     counts = {}
     for kind in wanted:
-        mark = MATERIAL_MARKER[kind]
+        word = MATERIAL_WORD[kind]
         dest = Path(out_dir) / "materials" / kind
         n = 0
         for src in sorted(root.iterdir()):
-            if not src.is_file() or mark not in src.name:
+            if not src.is_file() or material_names.is_superseded(src.name):
                 continue
-            if docs is not None and not any(src.name.startswith(d) for d in docs):
+            if not any(material_names.is_kind(src.name, word, d) for d in parts):
                 continue
             dest.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest / src.name)
@@ -644,56 +658,214 @@ def dangling_xrefs(folder, exported_files, exported_docs):
     return out
 
 
+def is_zip_file(path):
+    """A zip by its first bytes, never by its name: the server recognises a
+    dropped one the same way, and a shared course saved as `course.dat` is
+    still the course."""
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(4) == b"PK\x03\x04"
+    except OSError:
+        return False
+
+
+def unpack_shared_zip(zip_file, into, max_bytes=None):
+    """Unpack a shared course's zip into `into`, ready for `import_packs`.
+    Returns the relative paths written.
+
+    🔴 The zip is a stranger's, so no member name is trusted as a path. A
+    lesson, a course pack or a sidecar lands FLAT under its basename, whatever
+    folder the zip put it in; a cue file keeps exactly one level,
+    `captions/<DOC>/<file>`, and only when both parts match the shapes this
+    file accepts everywhere else (`DOC_ID`, `CAPTION_FILE`). A directory entry,
+    a dot-name and an empty basename are skipped. A member over `max_bytes`
+    refuses the whole zip, because a lesson is never that big and a zip bomb
+    is the thing that is. `zipfile.BadZipFile` is the caller's to catch."""
+    import zipfile
+    into = Path(into)
+    written = []
+    with zipfile.ZipFile(zip_file) as z:
+        for m in z.infolist():
+            parts = [p for p in m.filename.replace("\\", "/").split("/") if p]
+            base = parts[-1] if parts else ""
+            if m.is_dir() or not base or base.startswith("."):
+                continue
+            if max_bytes is not None and m.file_size > max_bytes:
+                raise Problem("%s inside the zip is too big to be a lesson"
+                              % base[:60])
+            rel = Path(base)
+            if (len(parts) >= 3 and parts[-3] == CAPTIONS_DIRNAME
+                    and DOC_ID.match(parts[-2]) and CAPTION_FILE.match(base)):
+                rel = Path(CAPTIONS_DIRNAME) / parts[-2] / base
+            target = into / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(z.read(m))
+            written.append(str(rel))
+    return written
+
+
+def caption_sources(dirs):
+    """{doc: [paths]} for every `captions/<DOC>/` folder under the given
+    folders: a lecture id by `DOC_ID`, cue files by `CAPTION_FILE`, and at
+    least one `.vtt` among them or the folder is not cues. A shared course's
+    unpacked zip and a caption pack's own folder both have this layout, so one
+    reader serves both."""
+    found = {}
+    for d in dirs:
+        root = Path(d) / CAPTIONS_DIRNAME
+        if not root.is_dir():
+            continue
+        for sub in sorted(root.iterdir()):
+            if not sub.is_dir() or not DOC_ID.match(sub.name):
+                continue
+            files = sorted(p for p in sub.iterdir()
+                           if p.is_file() and CAPTION_FILE.match(p.name))
+            if any(p.suffix == ".vtt" for p in files):
+                found[sub.name] = files
+    return found
+
+
+def course_packs_in(dirs):
+    """Every course pack (`*.json` carrying `course_pack`) at the top of the
+    given folders, parsed. Recognised by its marker, never by its name."""
+    out = []
+    for d in dirs:
+        for f in sorted(Path(d).glob("*.json")):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if isinstance(data, dict) and data.get("course_pack"):
+                out.append(data)
+    return out
+
+
+def import_captions(folder, found, force=False, quiet=True):
+    """Put shared cues into this course at `captions/<DOC>/`. Returns
+    (doc ids landed, [(doc, why it was skipped)]).
+
+    🔴 A lecture that already has cues here keeps them unless `force`: a
+    recipient who built their own captions has cues matched to THEIR audio,
+    and a pack made on somebody else's machine must not quietly replace them.
+    The same rule `import_packs` applies to a lesson and `merge_links` to a
+    link. With `force`, every file about to be replaced is copied to
+    `backups/` beside it first, dated, the way a replaced lesson is."""
+    root = Path(folder) / CAPTIONS_DIRNAME
+    imported, skipped = [], []
+    for doc, files in sorted(found.items()):
+        dest = root / doc
+        have = dest.is_dir() and any(
+            p.suffix == ".vtt" for p in dest.iterdir() if p.is_file())
+        if have and not force:
+            skipped.append((doc, "this course already has cues for %s" % doc))
+            continue
+        dest.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        for src in files:
+            target = dest / src.name
+            if target.exists():
+                shutil.copy2(target, SPLIT.backup_target(
+                    target, "%s.%s.bak" % (target.name, stamp)))
+            shutil.copy2(src, target)
+        imported.append(doc)
+        if not quiet:
+            print("  captions %-50s %d file%s"
+                  % (doc[:50], len(files), "" if len(files) == 1 else "s"))
+    return imported, skipped
+
+
 def import_packs(cfg, sources, with_links=True, force=False, quiet=False):
+    """Put shared lessons, and whatever rode beside them, into this course.
+    Returns (staged, skipped, merged, extras).
+
+    A source is a lesson pack, a bare lesson, a folder of them, or a `.zip`
+    the share button made. Beside the lessons, a folder or zip may carry a
+    `captions/<DOC>/` tree and a course pack (`<CODE>.course.json`: glossary,
+    readings summaries, mistakes ledger), and both land too, through the same
+    functions the page's drop target uses. `extras` says what:
+    `{"captions": [doc ids], "captions_skipped": [(doc, why)],
+      "course": {"glossary": n, "readings": n, "mistakes": n, "core_ideas": n}}`.
+
+    🔴 Until 2026-09-17 this read the lessons and nothing else, so a course
+    exported WITH its captions arrived without them and nothing said so: the
+    `captions/` folder sat in the zip, the recipient's reader looked in
+    `courses/<CODE>/captions/` and found nothing. The reproduction is in the
+    queue entry of that date."""
+    import contextlib
+    import tempfile
+    import zipfile
     folder = module_folder(cfg)
-    files = []
-    for src in sources:
-        p = Path(src).expanduser()
-        if p.is_dir():
-            files.extend(sorted(p.glob("*" + PACK_SUFFIX)))
+    files, dirs = [], []
+    extras = {"captions": [], "captions_skipped": [],
+              "course": {"glossary": 0, "readings": 0, "mistakes": 0,
+                         "core_ideas": 0}}
+    with contextlib.ExitStack() as stack:
+        for src in sources:
+            p = Path(src).expanduser()
+            if p.is_dir():
+                dirs.append(p)
+            elif p.is_file() and is_zip_file(p):
+                tmp = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+                try:
+                    unpack_shared_zip(p, tmp)
+                except zipfile.BadZipFile:
+                    raise Problem("%s is not a zip this can read" % p.name)
+                dirs.append(tmp)
+            elif p.is_file():
+                files.append(p)
+            else:
+                raise Problem("nothing at %s" % p)
+        for d in dirs:
+            files.extend(sorted(d.glob("*" + PACK_SUFFIX)))
             # Bare lesson files in the same folder, recognised by carrying a
             # lesson-meta block rather than by being named the way this module
             # names things. A sender whose course is `L01-…` was otherwise told
             # the folder held no packs.
-            files.extend(SPLIT.lessons_in(p))
-        elif p.is_file():
-            files.append(p)
-        else:
-            raise Problem("nothing at %s" % p)
-    if not files:
-        raise Problem("no lesson packs found in %s"
-                      % ", ".join(str(Path(s).expanduser()) for s in sources))
+            files.extend(SPLIT.lessons_in(d))
+        captions = caption_sources(dirs)
+        course_packs = course_packs_in(dirs)
+        if not files and not captions and not course_packs:
+            raise Problem("no lesson packs, captions or course pack found in %s"
+                          % ", ".join(str(Path(s).expanduser()) for s in sources))
 
-    staged, skipped, links_seen = [], [], {}
-    for f in files:
-        text = f.read_text(encoding="utf-8")
-        try:
-            meta, _, _ = SPLIT.read_content(text, f.name)
-        except SPLIT.Problem as exc:
-            raise Problem("%s is not a lesson pack: %s" % (f.name, exc))
-        doc = meta.get("doc")
-        links = read_links(text)
-        name = f.name[:-len(PACK_SUFFIX)] + ".html" if f.name.endswith(PACK_SUFFIX) else f.name
-        target = folder / name
-        if target.exists() and not force:
-            skipped.append((f.name, "a lesson is already at %s" % name))
-            continue
-        staged.append((f, target, doc, strip_links(text) if not with_links else strip_links(text)))
-        if with_links and links:
-            links_seen[doc] = links
+        staged, skipped, links_seen = [], [], {}
+        for f in files:
+            text = f.read_text(encoding="utf-8")
+            try:
+                meta, _, _ = SPLIT.read_content(text, f.name)
+            except SPLIT.Problem as exc:
+                raise Problem("%s is not a lesson pack: %s" % (f.name, exc))
+            doc = meta.get("doc")
+            links = read_links(text)
+            name = f.name[:-len(PACK_SUFFIX)] + ".html" if f.name.endswith(PACK_SUFFIX) else f.name
+            target = folder / name
+            if target.exists() and not force:
+                skipped.append((f.name, "a lesson is already at %s" % name))
+                continue
+            staged.append((f, target, doc, strip_links(text) if not with_links else strip_links(text)))
+            if with_links and links:
+                links_seen[doc] = links
 
-    for f, target, doc, body in staged:
-        if target.exists():
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            shutil.copy2(target, SPLIT.backup_target(
-                target, "%s.%s.bak" % (target.name, stamp)))
-        target.write_text(body, encoding="utf-8")
-        if not quiet:
-            print("  imported %-50s as %s" % (f.name[:50], target.name))
+        for f, target, doc, body in staged:
+            if target.exists():
+                stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                shutil.copy2(target, SPLIT.backup_target(
+                    target, "%s.%s.bak" % (target.name, stamp)))
+            target.write_text(body, encoding="utf-8")
+            if not quiet:
+                print("  imported %-50s as %s" % (f.name[:50], target.name))
 
-    merged = merge_links(folder, links_seen) if links_seen else 0
+        merged = merge_links(folder, links_seen) if links_seen else 0
+        if captions:
+            extras["captions"], extras["captions_skipped"] = import_captions(
+                folder, captions, force=force, quiet=quiet)
+        for data in course_packs:
+            got = import_course_pack(folder, data)
+            for k in extras["course"]:
+                extras["course"][k] += got.get(k, 0)
+
     if not quiet:
-        for name, why in skipped:
+        for name, why in skipped + extras["captions_skipped"]:
             print("  skipped  %-50s %s" % (name[:50], why))
         print("\n%d lesson%s imported into %s"
               % (len(staged), "" if len(staged) == 1 else "s", folder))
@@ -703,9 +875,19 @@ def import_packs(cfg, sources, with_links=True, force=False, quiet=False):
         elif not with_links:
             print("Links were dropped (--no-links): the notes read, and Materials has "
                   "nothing to point at.")
-        if skipped:
+        if extras["captions"]:
+            print("Captions for %d lecture%s are in %s."
+                  % (len(extras["captions"]),
+                     "" if len(extras["captions"]) == 1 else "s",
+                     folder / CAPTIONS_DIRNAME))
+        c = extras["course"]
+        if any(c.values()):
+            print("Course pack: %d glossary terms, %d readings, %d mistakes, "
+                  "core ideas for %d." % (c["glossary"], c["readings"],
+                                          c["mistakes"], c["core_ideas"]))
+        if skipped or extras["captions_skipped"]:
             print("Nothing was overwritten. Re-run with --force to replace what is there.")
-    return staged, skipped, merged
+    return staged, skipped, merged, extras
 
 
 def merge_links(folder, links_by_doc):
@@ -785,6 +967,28 @@ PERSONAL_KINDS = ("marks", "notes", "chats", "cards", "bookmarks", "settings",
 
 CAPTION_PACK_SCHEMA = "1.0.0"
 CAPTION_PACKS_DIR = "caption-packs"
+# Where a course keeps its cues and where an import puts them:
+# `<course>/captions/<DOC>/`, which is where the reader looks for them.
+CAPTIONS_DIRNAME = "captions"
+
+# 🔴 MIRRORED, NOT IMPORTED. The sidecar vocabulary belongs to `captions.py`
+# (`ENGINE_CTC`, `ENGINE_WHISPER`) and `video_captions.py` (`TRANSCRIPT`,
+# `HEARD`), and neither of those ships in the kit; this file does, and a
+# recipient's install would fail on the import. `test_lesson_packs_sharing.py`
+# pins each string to its owner, so the two ends cannot drift apart silently.
+ENGINE_CTC = "ctc"
+ENGINE_WHISPER = "whisper"
+WORDS_TRANSCRIPT = "transcript"
+WORDS_HEARD = "heard"
+
+# A lecture id, matched BEFORE it becomes a folder name: the shape
+# `study_server.DOC_ID_RE` accepts, and the same reasoning as CORE_IDEAS_ID
+# above. It also keeps a caption rebuild's `<DOC>.<stamp>.bak` folders out of
+# an inventory, which until 2026-09-17 shipped a course's backups to a
+# recipient as extra lectures.
+DOC_ID = CORE_IDEAS_ID
+# A cue file's name inside a lecture folder: no separators, no dot-names.
+CAPTION_FILE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.(?:vtt|json)\Z")
 
 
 def default_contents():
@@ -972,25 +1176,31 @@ def captions_for(folder, doc):
     """Every cue file a lecture owns, newest naming convention included.
 
     One folder per lecture named by SOURCE, which is the layout the brief
-    settles in §3: `video.vtt` for a plain recording, `soundN.vtt` for the
-    narrated package's clips, `captions.json` beside them. This reads whatever
-    is there rather than reconstructing the names, so a third source added
-    later needs no change here."""
-    d = Path(folder) / "captions" / doc
+    settles in §3: `video.vtt` for a plain recording, `soundN.vtt` for each
+    clip of the interactive slide player, `captions.json` beside them. This
+    reads whatever is there rather than reconstructing the names, so a third
+    source added later needs no change here."""
+    d = Path(folder) / CAPTIONS_DIRNAME / doc
     if not d.is_dir():
         return []
     return sorted(p for p in d.iterdir()
-                  if p.is_file() and p.suffix in (".vtt", ".json"))
+                  if p.is_file() and CAPTION_FILE.match(p.name))
 
 
 def caption_inventory(folder, docs=None):
     """{doc: [paths]} for every lecture that has cues. Empty dict if none."""
-    root = Path(folder) / "captions"
+    root = Path(folder) / CAPTIONS_DIRNAME
     if not root.is_dir():
         return {}
     found = {}
     for d in sorted(p.name for p in root.iterdir() if p.is_dir()):
         if docs is not None and d not in docs:
+            continue
+        # 🔴 A rebuild leaves `<DOC>.<stamp>.bak` folders beside the real
+        # lectures. Measured 2026-09-17 on a course with 64 folders under
+        # `captions/`, 43 of them backups: an export carried all 64. The id
+        # shape decides, as it does everywhere else a name becomes a path.
+        if not DOC_ID.match(d):
             continue
         files = captions_for(folder, d)
         if any(p.suffix == ".vtt" for p in files):
@@ -998,22 +1208,30 @@ def caption_inventory(folder, docs=None):
     return found
 
 
-CAPTION_README = """# %(code)s captions
+CAPTION_README = """# %(title)s
 
 The closed-caption cues for %(lectures)d lecture%(s)s of %(code)s%(name)s.
 
-**These are the lecturer's own words.** They were not transcribed by a machine:
-they come from the transcript published with each lecture, and a speech model
-supplied only the TIMINGS that say when each word is spoken. See
-`PROVENANCE.md`.
-
+%(words)s
 ## What is here
 
     captions/<LECTURE>/video.vtt      cues for the plain lecture recording
-    captions/<LECTURE>/soundN.vtt     cues for the narrated package's clips
+    captions/<LECTURE>/soundN.vtt     cues for each clip of the interactive slide player
     captions/<LECTURE>/captions.json  what made them, and how well it matched
 
 `.vtt` is WebVTT, which every browser and every video player reads.
+
+## Where it goes
+
+Each lecture's folder belongs at `courses/%(code)s/captions/<LECTURE>/` in the
+recipient's own Study Hub, which is where the reader looks for cues. Two ways
+to put it there, and both do the copying:
+
+- drop this pack, zipped, onto the course's page in Study Hub, or
+- `python3 server/lesson_packs.py --module %(code)s --import <this folder>`
+
+Nothing already there is replaced unless `--force` says so, and what is
+replaced is backed up first.
 
 ## Who may hold this
 
@@ -1027,26 +1245,89 @@ No video, no audio, no slides, no transcripts, and nothing anybody wrote while
 studying: no highlights, notes, chats, cards or bookmarks.
 """
 
-CAPTION_PROVENANCE = """# Provenance
+# The README's second paragraph, chosen by what the sidecars say the WORDS are.
+# ⚠️ Said per pack rather than as one fixed claim, because one course on this
+# machine holds lectures whose cues are machine-heard (no transcript could be
+# placed), and a README that called those "the lecturer's own words" would be
+# the pack's own claim about itself being false.
+README_WORDS_TRANSCRIPT = """**These are the lecturer's own words.** They were not transcribed by a machine:
+they come from the transcript published with each lecture, and a speech model
+supplied only the TIMINGS that say when each word is spoken. See
+`PROVENANCE.md`.
+"""
+README_WORDS_SOME_HEARD = """**These are the lecturer's own words** for every lecture but %(n)d: they come from
+the transcript published with each lecture, and a speech model supplied only
+the TIMINGS that say when each word is spoken. ⚠️ For %(docs)s the cues are what
+a speech recogniser HEARD, because no published transcript could be placed
+against the recording; a wrong word there is the machine's. `PROVENANCE.md`
+says which and how confident the recogniser was.
+"""
+README_WORDS_ALL_HEARD = """⚠️ **These cues are what a speech recogniser HEARD in each recording**, not the
+lecturer's published transcript: none could be placed against the audio. A
+wrong word is the machine's. `PROVENANCE.md` records the recogniser's
+confidence per lecture.
+"""
+
+# PROVENANCE.md is composed from these by `caption_provenance`, from what the
+# sidecars actually say. 🔴 It was one constant until 2026-09-17, and the
+# constant described the speech-model matcher after plan 13 had replaced it
+# with forced alignment: a pack's own account of how it was made is the one
+# thing a recipient cannot check, so it has to be read off the files.
+PROVENANCE_HEAD = """# Provenance
 
 ## Whose words these are
 
-The words are the lecturer's, taken from the transcript published alongside
+"""
+PROVENANCE_WORDS_TRANSCRIPT = """The words are the lecturer's, taken from the transcript published alongside
 each lecture. **No speech-recognition output reaches these files as text.**
-
+"""
+PROVENANCE_WORDS_SOME_HEARD = """The words are the lecturer's, taken from the transcript published alongside
+each lecture, **except for %(n)d lecture%(s)s: %(docs)s.** For those no
+published transcript could be placed against the recording, so the cues carry
+what a speech recogniser HEARD, with the recogniser's own confidence in the
+table below. A wrong word in them is the machine's, not the lecturer's: a
+listening aid, not a quotation.
+"""
+PROVENANCE_WORDS_ALL_HEARD = """The words are what a speech recogniser HEARD in each recording. No published
+transcript could be placed against the audio, so a wrong word is the machine's,
+not the lecturer's: a listening aid, not a quotation. The recogniser's own
+confidence is in the table below.
+"""
+PROVENANCE_TIMINGS_HEAD = """
 ## How the timings were made
 
-A speech model listens to the recording and produces a rough transcript with a
+"""
+PROVENANCE_MIXED = """Two engines made the cues in this pack; the table at the end says which for
+each lecture.
+
+"""
+PROVENANCE_ENGINE_CTC = """%(head)sThe transcript decides WHAT is said and an acoustic model decides WHEN. A
+character-level speech model listens to the recording and gives, every 20 ms,
+the probability of each letter being spoken. The transcript's letters are
+placed on those frames by CTC forced alignment, so every word gets a start
+time, an end time and a score for how well the audio there matches it.
+
+Where a passage of the transcript cannot be placed confidently (the recording
+skips it, the lecturer departs from the script, the audio is poor) that passage
+gets NO cue rather than a guessed one. `transcript_covered` in each
+`captions.json` is the fraction of the transcript's words that were placed.
+"""
+PROVENANCE_ENGINE_WHISPER = """%(head)sA speech model listens to the recording and produces a rough transcript with a
 time against each word. That rough transcript is matched against the real one,
 and each real word takes the time of the rough word it matched. So the model
 decides WHEN, and the published transcript decides WHAT.
 
 Where the match is poor the cues are refused rather than written, which is what
-`coverage` records in each `captions.json`.
-
+the coverage figure in each `captions.json` records.
+"""
+PROVENANCE_ENGINE_UNKNOWN = """%(n)d lecture%(s)s (%(docs)s) carr%(y)s cue files with no `captions.json`
+beside them, or one that does not name its engine, so this pack cannot say how
+their timings were made. Their cues are copied as found.
+"""
+PROVENANCE_TAIL = """
 ## What was checked
 
-- Every `.vtt` in this pack was produced by that path; none was hand-edited.
+- Every `.vtt` in this pack was produced by the path above; none was hand-edited.
 - `pack.json` counts the cues by reading the `.vtt` files in this pack, not by
   copying a number from the sidecars beside them.
 
@@ -1056,22 +1337,144 @@ Where the match is poor the cues are refused rather than written, which is what
 
 Coverage is the fraction of the published transcript that could be placed in
 time confidently. A lecture below about 0.9 is worth spot-checking against the
-recording before relying on its cues.
+recording before relying on its cues. A machine-heard lecture has no coverage
+to report: its figure is the recogniser's confidence in what it heard.
 """
 
 
-def caption_pack_manifest(code, lectures, cues, name=""):
+def sidecar_facts(side):
+    """What a lecture's `captions.json` says about how its cues were made, in
+    one shape whichever generation of the pipeline wrote it: `engine`, `words`
+    (what the cue text IS), `covered` (the fraction of the transcript placed),
+    `confidence` (a recogniser's, for machine-heard words) and `tool`. A
+    missing or unreadable sidecar gives every field empty, and the caller says
+    so rather than guessing.
+
+    ⚠️ Two generations of sidecar are on disk. The forced-alignment engine
+    writes `engine`, `words_are` and `transcript_covered`; the speech-model
+    matcher before it wrote no `engine`, named its tool under `timings_from`,
+    and recorded its match as `coverage` (older) or `transcript_covered`
+    (later). Reading one key and printing "not recorded" for the rest is how a
+    pack came to show an empty coverage column for a course whose every
+    sidecar carried the number."""
+    out = {"engine": "", "words": "", "covered": None, "confidence": None,
+           "tool": ""}
+    try:
+        data = json.loads(Path(side).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return out
+    if not isinstance(data, dict):
+        return out
+    tool = data.get("timings_from")
+    tool = str(tool.get("tool") or "") if isinstance(tool, dict) else ""
+    out["tool"] = tool
+    engine = str(data.get("engine") or "")
+    if not engine:
+        low = tool.lower()
+        if "whisper" in low:
+            engine = ENGINE_WHISPER
+        elif "forced_align" in low or "ctc" in low:
+            engine = ENGINE_CTC
+    out["engine"] = engine
+    out["words"] = str(data.get("words_are") or WORDS_TRANSCRIPT)
+    for key in ("transcript_covered", "coverage"):
+        v = data.get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            out["covered"] = float(v)
+            break
+    v = data.get("heard_confidence")
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        out["confidence"] = float(v)
+    return out
+
+
+def _named(docs):
+    return ", ".join("`%s`" % d for d in docs)
+
+
+def caption_words_paragraph(facts, readme=False):
+    """The paragraph saying what the cue TEXT is, for the README (`readme`)
+    or PROVENANCE.md, from `{doc: sidecar_facts}`."""
+    heard = sorted(d for d, f in facts.items() if f["words"] == WORDS_HEARD)
+    if not heard:
+        return README_WORDS_TRANSCRIPT if readme else PROVENANCE_WORDS_TRANSCRIPT
+    fill = {"n": len(heard), "s": "" if len(heard) == 1 else "s",
+            "docs": _named(heard)}
+    if len(heard) == len(facts):
+        return README_WORDS_ALL_HEARD if readme else PROVENANCE_WORDS_ALL_HEARD
+    return (README_WORDS_SOME_HEARD if readme else PROVENANCE_WORDS_SOME_HEARD) % fill
+
+
+def caption_provenance(facts, files_by_doc=None):
+    """PROVENANCE.md for a caption pack, from `{doc: sidecar_facts}`."""
+    files_by_doc = files_by_doc or {}
+    engines = sorted({f["engine"] for f in facts.values() if f["engine"]})
+    unknown = sorted(d for d, f in facts.items() if not f["engine"])
+    out = [PROVENANCE_HEAD, caption_words_paragraph(facts), PROVENANCE_TIMINGS_HEAD]
+    mixed = len(engines) > 1
+    if mixed:
+        out.append(PROVENANCE_MIXED)
+    for eng in engines:
+        if eng == ENGINE_CTC:
+            head = "### By forced alignment (`%s`)\n\n" % eng if mixed else ""
+            out.append(PROVENANCE_ENGINE_CTC % {"head": head})
+        elif eng == ENGINE_WHISPER:
+            head = "### By speech-model match (`%s`)\n\n" % eng if mixed else ""
+            out.append(PROVENANCE_ENGINE_WHISPER % {"head": head})
+        else:
+            docs = sorted(d for d, f in facts.items() if f["engine"] == eng)
+            out.append("%d lecture%s (%s) name%s an engine this file does not "
+                       "know, `%s`; its cues are copied as found.\n"
+                       % (len(docs), "" if len(docs) == 1 else "s", _named(docs),
+                          "s" if len(docs) == 1 else "", eng))
+        if mixed:
+            out.append("\n")
+    if unknown:
+        out.append(PROVENANCE_ENGINE_UNKNOWN % {
+            "n": len(unknown), "s": "" if len(unknown) == 1 else "s",
+            "docs": _named(unknown), "y": "ies" if len(unknown) == 1 else "y"})
+    rows = []
+    for doc, f in sorted(facts.items()):
+        if f["words"] == WORDS_HEARD:
+            conf = ("recogniser confidence %.3f" % f["confidence"]
+                    if f["confidence"] is not None else "confidence not recorded")
+            rows.append("- `%s` ⚠️ machine-heard words, %s" % (doc, conf))
+        elif f["covered"] is not None:
+            how = {ENGINE_CTC: "by forced alignment (`%s`)" % ENGINE_CTC,
+                   ENGINE_WHISPER: "by the speech-model match (`%s`)" % ENGINE_WHISPER,
+                   }.get(f["engine"], "engine not recorded")
+            rows.append("- `%s` %.3f of the transcript placed, %s"
+                        % (doc, f["covered"], how))
+        elif not f["engine"] and not f["tool"]:
+            n = len(files_by_doc.get(doc) or [])
+            rows.append("- `%s` no sidecar: %d cue file%s, engine not recorded"
+                        % (doc, n, "" if n == 1 else "s"))
+        else:
+            rows.append("- `%s` coverage not recorded (`%s`)"
+                        % (doc, f["engine"] or f["tool"] or "unknown"))
+    out.append(PROVENANCE_TAIL % {"coverage": "\n".join(rows)})
+    return "".join(out)
+
+
+def caption_pack_manifest(code, lectures, cues, name="", module_code=""):
     """`pack.json` for a caption pack.
 
     🔴 `contains_lecturer_words` is ALWAYS true here and is never omitted. It is
     the field a future guard reads, and a guard that has to infer intent from a
     folder name is the kind this project keeps having to repair. It is written
     as data for the same reason the distribution posture is: a convention that
-    lives only in a README cannot be checked by anything."""
+    lives only in a README cannot be checked by anything.
+
+    🟢 `code` and `name` are the course's OWN, from its `settings.json` module
+    block (EH, 2026-09-17: "relabel the captions pack so it's named correctly
+    ... maybe it should be attached to the actual course ID"). No identifier is
+    invented: `module` is the folder the course lives in, `code` is what the
+    course calls itself, and on this machine the two are the same string."""
     return {
         "schema_version": CAPTION_PACK_SCHEMA,
         "kind": "captions",
         "module": code,
+        "code": module_code or code,
         "name": name or "",
         # 🟢 EH, 2026-09-04: "the caption packs should be shareable. That's my
         # final answer." ⚠️ The VALUE changed on that ruling; the need to record
@@ -1100,33 +1503,27 @@ def build_caption_pack(cfg, out_dir, docs=None, quiet=True):
         raise Problem(
             "this course has no captions yet, so there is nothing to pack.\n"
             "  Cues are built by `python3 server/video_captions.py --all %s`\n"
-            "  for plain recordings, and by `server/captions.py` for narrated\n"
-            "  packages." % code)
+            "  for plain recordings, and by `server/captions.py` for the clips\n"
+            "  of the interactive slide player." % code)
 
     out_dir = Path(out_dir).expanduser() / CAPTION_PACKS_DIR / ("%s-captions" % code)
     if out_dir.exists():
         shutil.rmtree(out_dir)
-    (out_dir / "captions").mkdir(parents=True)
+    (out_dir / CAPTIONS_DIRNAME).mkdir(parents=True)
 
-    cues, coverage = 0, []
+    cues, facts = 0, {}
     for doc, files in sorted(found.items()):
-        dest = out_dir / "captions" / doc
+        dest = out_dir / CAPTIONS_DIRNAME / doc
         dest.mkdir()
         for src in files:
             shutil.copy2(src, dest / src.name)
             if src.suffix == ".vtt":
                 cues += cue_count(src)
-        side = dest / "captions.json"
-        cov = None
-        if side.is_file():
-            try:
-                cov = json.loads(side.read_text(encoding="utf-8")).get("coverage")
-            except (OSError, ValueError):
-                cov = None
-        coverage.append((doc, cov))
+        facts[doc] = sidecar_facts(dest / "captions.json")
 
     name = cfg.get("module_name") or cfg.get("class_name") or ""
-    manifest = caption_pack_manifest(code, len(found), cues, name)
+    manifest = caption_pack_manifest(code, len(found), cues, name,
+                                     module_code=cfg.get("module_code") or "")
     (out_dir / "pack.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8")
@@ -1135,16 +1532,20 @@ def build_caption_pack(cfg, out_dir, docs=None, quiet=True):
     (out_dir / "README.md").write_text(
         CAPTION_README % {"code": code, "lectures": n,
                           "s": "" if n == 1 else "s",
-                          "name": (" (%s)" % name) if name else ""},
+                          "title": ("%s captions: %s" % (code, name)) if name
+                          else ("%s captions" % code),
+                          "name": (" (%s)" % name) if name else "",
+                          "words": caption_words_paragraph(facts, readme=True)},
         encoding="utf-8")
-    rows = "\n".join(
-        "- `%s` %s" % (doc, "not recorded" if cov is None else "%.3f" % cov)
-        for doc, cov in coverage)
-    (out_dir / "PROVENANCE.md").write_text(
-        CAPTION_PROVENANCE % {"coverage": rows}, encoding="utf-8")
+    (out_dir / "PROVENANCE.md").write_text(caption_provenance(facts, found),
+                                           encoding="utf-8")
 
-    report = {"lectures": n, "cues": cues, "folder": out_dir,
-              "low": [d for d, c in coverage if c is not None and c < 0.9]}
+    low = [d for d, f in sorted(facts.items())
+           if f["covered"] is not None and f["covered"] < 0.9]
+    report = {"lectures": n, "cues": cues, "folder": out_dir, "low": low,
+              "heard": [d for d, f in sorted(facts.items())
+                        if f["words"] == WORDS_HEARD],
+              "engines": sorted({f["engine"] for f in facts.values()})}
     if not quiet:
         print("%d lecture%s, %d cues -> %s"
               % (n, "" if n == 1 else "s", cues, out_dir))
@@ -1153,7 +1554,54 @@ def build_caption_pack(cfg, out_dir, docs=None, quiet=True):
             # exactly like a good one from outside the file.
             print("⚠️ %d below 0.9 coverage, worth checking against the "
                   "recording: %s" % (len(report["low"]), ", ".join(report["low"])))
+        if report["heard"]:
+            print("⚠️ %d with machine-heard words rather than the transcript: %s"
+                  % (len(report["heard"]), ", ".join(report["heard"])))
     return out_dir, report
+
+
+def course_cfg(raw, root, module_id):
+    """The server's own view of one course: `notes_dir` at its folder and the
+    course's name, code, class and vault link read from its `settings.json`,
+    never from the machine config.
+
+    🔴 Until 2026-09-17 `--module` set `notes_dir` and `module` and nothing
+    else, so `dict(raw)` handed every course the machine's `class_name`: a
+    pack exported for a second course said in its links, and a caption pack
+    in its manifest, that it came from the first. The server had already
+    fixed exactly this for the share button (`study_server.module_cfg`, the
+    "identity is per COURSE" note); the command line simply never called
+    it. One resolver now, so the two cannot drift again."""
+    import study_server as S
+    scfg = dict(raw)
+    scfg["courses_dir"] = Path(root).expanduser()
+    scfg["notes_dir"] = Path(str(raw.get("notes_dir")
+                                 or Path(root).expanduser() / module_id)).expanduser()
+    try:
+        return S.module_cfg(scfg, module_id)
+    except ValueError as exc:
+        raise Problem(str(exc))
+
+
+def print_course_report(zip_path, report):
+    """What the share button's page says, for the terminal."""
+    r = report
+    print("  %d lesson%s" % (r["lessons"], "" if r["lessons"] == 1 else "s"))
+    if r["glossary"] or r["readings"] or r["mistakes"] or r["core_ideas"]:
+        print("  course pack: %d glossary terms, %d readings, %d mistakes, "
+              "core ideas for %d" % (r["glossary"], r["readings"],
+                                     r["mistakes"], r["core_ideas"]))
+    if r["captions"]:
+        print("  captions: %d lecture%s, %d cues"
+              % (r["captions"], "" if r["captions"] == 1 else "s", r["cues"]))
+    # `drive_withheld` is not repeated here: `export` has already printed the
+    # full paragraph about it, once, when it withheld them.
+    for kind, n in sorted(r["materials_local"].items()):
+        print("🔴 %d %s: KCL's own files, leaving this machine. Not "
+              "yours to publish." % (n, kind))
+    for name, n in sorted(r["knowledge_packs"].items()):
+        print("  knowledge pack %s: %d files" % (name, n))
+    print("\n%s" % zip_path)
 
 
 def main():
@@ -1235,17 +1683,29 @@ def main():
                           % ", ".join(siblings))
                     print("  If that was a typo, delete %s and run it again."
                           % folder)
+            cfg = course_cfg(raw, root, args.module)
 
         if args.caption_pack:
             if not args.to:
                 raise Problem("--to <folder> says where the pack goes")
             build_caption_pack(cfg, args.to, quiet=False)
-        elif args.export or args.export_all:
+        elif args.export_all:
+            if not args.to:
+                raise Problem("--to <folder> says where the zip goes")
+            # 🔴 The same function the share button calls, so the zip carries
+            # the course pack (glossary, readings, mistakes, core ideas) and
+            # records its own contents. Until 2026-09-17 this wrote the bare
+            # lesson packs, so a course shared from the terminal arrived
+            # without its glossary and nothing said so.
+            contents = contents_from_args(args)
+            zip_path, report = export_course(
+                cfg, args.to, with_links=contents["material_links"],
+                with_drive=args.with_drive, quiet=False, contents=contents)
+            print_course_report(zip_path, report)
+        elif args.export:
             if not args.to:
                 raise Problem("--to <folder> says where the packs go")
-            docs = args.export or [p.name.split("-")[0] + "-" + p.name.split("-")[1]
-                                   + "-" + p.name.split("-")[2]
-                                   for p in lessons_in(module_folder(cfg))]
+            docs = args.export
             contents = contents_from_args(args)
             refuse_personal(contents)
             export(cfg, docs, args.to, with_links=contents["material_links"],

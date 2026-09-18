@@ -110,6 +110,23 @@ after you restart your machine; say yes and you never think about it again.
 
 **You will not need a terminal**, before or after.
 
+### Asking questions inside a lesson
+
+Explain, the chat beside a lesson, and Rewrite all ask Claude. There are two
+ways for Study Hub to reach it, and it uses whichever you have set up:
+
+- **Claude Code on this machine**, which the "set me up" route above installs.
+  Questions ride the subscription you already have; nothing more to pay.
+- **An API key of your own**, from <https://console.anthropic.com/>, pasted into
+  **Settings → Reaching Claude** in Study Hub. Each question is charged to that
+  key at Anthropic's published rates (small for a question, more for a long
+  Rewrite on the largest model), so this is the route for a machine where you
+  would rather not install Claude Code, or a machine you share. The key is kept in your own settings file, which only your user can
+  read, and is never shown again once saved.
+
+With neither set up, everything else still works: reading, highlighting, notes,
+Look up. The Explain button says what is missing.
+
 ---
 
 ## Where your lessons come from
@@ -172,6 +189,14 @@ If anything stops working, ask. "The reader won't open" is enough to go on.
   Ask.
 - **It is not only for one module.** Add as many courses as you like; they each
   get their own folder, their own settings and their own highlights.
+- **Captions are optional, and the first build installs an engine.** A course
+  you download yourself has no captions until you ask for them: tick the box
+  in the wizard, or use **Install the caption engine** and then **Build the
+  missing captions** in Settings. The first time, it downloads a caption engine
+  of a few hundred megabytes, once, into a folder outside the kit, and it tells
+  you the size before it starts. Nothing runs unless you tick or click. (Reading
+  a transcript needs one more tool, `pdftotext`; if Settings says it is missing,
+  it names where it comes from.)
 
 ---
 

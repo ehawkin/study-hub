@@ -54,10 +54,10 @@ import study_server as S           # noqa: E402
 import split_lessons               # noqa: E402
 
 # 🔴 Both optional, because this script SHIPS in the kit and the kit is a subset.
-# `readings.py` is in the manifest and `verify_packages.py` is not, so the
-# packages probe has to be able to say "I cannot check that here" rather than
-# taking the whole report down with an ImportError. A gate that refuses to run
-# reports nothing about the five capabilities it could have checked.
+# `readings.py` and, since 2026-09-18, `verify_packages.py` are both in the
+# manifest; the guards stay, because a probe that can say "I cannot check that
+# here" survives the next module that leaves the kit, and a gate that refuses
+# to run reports nothing about the five capabilities it could have checked.
 try:
     import verify_packages         # noqa: E402
 except ImportError:                # pragma: no cover - present in this repo
