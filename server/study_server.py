@@ -2238,6 +2238,17 @@ def cache_put(cfg, key, value):
 
 
 PACK_SOURCE = "Brain regions"
+# 🔴 WHAT A SOURCE **IS**, sent beside what it is CALLED, because the client had
+# only the display name to sort on and a name is a guess about the future. The
+# rank reserved a pack's slot by testing for the literal word "pack"; the pack
+# that shipped calls itself "Brain regions" and fell to the catch-all, which
+# sorts LAST -- EH saw that on his own screen. ⚠️ THE REPAIR WAS TO THIS PACK'S
+# NAME, so the same defect returns the day a second pack is named after its own
+# subject (`Neurotransmitters`, `Receptor families`), which is exactly what
+# `plans/10-knowledge-packs.md` proposes. **One structural field lets the client
+# ask what a source IS, and a renamed or second pack then sorts right with no
+# client change at all.**
+PACK_KIND = "pack"
 
 
 def pack_lookup(term, wiki=None, with_plates=True):
@@ -2278,8 +2289,8 @@ def pack_lookup(term, wiki=None, with_plates=True):
     entry = regionpack.definition(term, wiki)
     if not entry:
         return None
-    hit = {"source": PACK_SOURCE, "title": entry["name"], "text": entry["text"],
-           "extra": entry["aliases"], "url": ""}
+    hit = {"source": PACK_SOURCE, "kind": PACK_KIND, "title": entry["name"],
+           "text": entry["text"], "extra": entry["aliases"], "url": ""}
     if with_plates:
         shots = regionpack.plates(entry["name"])
         if shots:
@@ -4133,7 +4144,14 @@ def write_bookmarks(cfg, doc_id, payload):
         clean, adopted = merge_bookmarks(disk, clean, payload.get("base"))
         keep_the_losing_copy(cfg, bpath, "bookmarks", doc_id,
                              lambda d: len(d.get("marks") or []),
-                             {"marks": clean})
+                             {"marks": clean},
+                             # 🔴 WITHOUT FILTERING `None`. An unnameable row is
+                             # bucketed under NO_IDENTITY so losing one is still
+                             # visible; a filtered list can never produce the
+                             # falsy key that bucketing watches for.
+                             keys=lambda d: [
+                                 bookmark_key(r) if isinstance(r, dict) else None
+                                 for r in (d.get("marks") or [])])
         write_json_sidecar(bpath,
                            {"doc": doc_id, "marks": clean,
                             "saved": datetime.now(timezone.utc).isoformat(timespec="seconds")})
@@ -4433,7 +4451,8 @@ def write_chatmarks(cfg, doc_id, payload):
         cleanchats, adopted_chats = merge_chatbooks(disk, cleanchats, base_chats)
         keep_the_losing_copy(cfg, cmpath, "chatmarks", doc_id,
                              lambda d: len(d.get("marks") or []) + len(d.get("chats") or []),
-                             {"marks": clean, "chats": cleanchats})
+                             {"marks": clean, "chats": cleanchats},
+                             keys=chatmarks_identity)
         write_json_sidecar(cmpath,
                            {"doc": doc_id, "marks": clean, "chats": cleanchats,
                             "saved": datetime.now(timezone.utc).isoformat(timespec="seconds")})
@@ -5822,6 +5841,36 @@ def chatbook_key(row):
     if not t:
         return None
     return "cb:%d:%s" % (c, t)
+
+
+def chatmarks_identity(doc):
+    """One key per row across BOTH of this sidecar's collections.
+
+    🔴 **THE DECISION THE ENTRY LEFT OPEN: together, not apart.** `chatmarks`
+    holds marks inside conversations AND bookmarked conversations, and the guard
+    already COUNTS them together (`len(marks) + len(chats)`). Naming only half
+    would make the two halves disagree about what "this file" means: a
+    conversation swapped at equal count would be invisible while a mark swapped
+    at equal count was caught, in one file, with nothing saying why.
+
+    🟢 **NAMESPACED, so one collection cannot mask a loss in the other.** The two
+    key functions already spell their own prefixes (`cm:` and `cb:`), so a
+    collision is unlikely rather than impossible; the prefix here makes it
+    impossible, which is cheaper than arguing about it.
+
+    🔴 **A ROW THAT CANNOT BE NAMED STAYS `None` AND IS NOT FILTERED OUT.** The
+    guard buckets falsy keys under `NO_IDENTITY` so that a FALL in the number of
+    unnameable rows is still a loss. ⚠️ Namespacing must therefore preserve
+    falsiness: `("cm", None)` is a TRUTHY tuple, which would quietly remove those
+    rows from the one comparison that can still see them."""
+    out = []
+    for row in (doc.get("marks") or []):
+        k = chatmark_key(row) if isinstance(row, dict) else None
+        out.append("m/" + k if k else None)
+    for row in (doc.get("chats") or []):
+        k = chatbook_key(row) if isinstance(row, dict) else None
+        out.append("c/" + k if k else None)
+    return out
 
 
 def _unseen(theirs, mine, agreed, key_of):

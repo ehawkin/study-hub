@@ -228,3 +228,12 @@ This software is under the PolyForm Strict License 1.0.0. The full text is in
 <https://polyformproject.org/licenses/strict/1.0.0>. It permits use for any
 noncommercial purpose, other than distributing the software or making changes
 or new works based on it.
+
+**That paragraph is about the software and nothing else**, which matters
+because the other two things in this folder are not ours and are not under it:
+
+- **The lessons you write are yours.** Nothing here claims any part of them.
+  Write what you like, keep them, share them on whatever terms you choose.
+- **The course materials you download belong to your institution.** They come
+  down under your own enrolment, and a lesson you pass to somebody else never
+  carries them. That is what "Things worth knowing" above is about.

@@ -1,5 +1,5 @@
 {
- "version": "2026.09.12a+f3b9509",
+ "version": "2026.09.18a+494e2d4",
  "url": "https://github.com/ehawkin/study-hub/releases/latest",
- "note": "This kit carries its licence for the first time. PolyForm Strict 1.0.0 is in LICENSE.md beside the README, and the official copy is at https://polyformproject.org/licenses/strict/1.0.0. It permits use for any noncommercial purpose, other than distributing the software or making changes or new works based on it. Nothing else about the kit has changed since 2026.09.12, which shipped with no terms at all, so anybody holding that one is holding the same software with nothing said about what they may do with it."
+ "note": "The same reader as v2026.09.18 without the four stray bytecode files that release carried: the pop-out player keeps its controls, the lookup panel sorts by what a source is, two Macs can no longer mint the same card, a swapped bookmark is no longer invisible to the merge, and a silent slide's marker is no longer read as speech."
 }

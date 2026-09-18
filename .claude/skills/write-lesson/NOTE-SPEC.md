@@ -351,6 +351,28 @@ later found to say something slightly wrong, the first question is whether the
 rewrite did it, and that cannot be answered without all three together. Name any
 term kept deliberately, or a later reader will treat it as a missed edit.
 
+### The check that measures this
+
+`verify_notes.py` compares every lesson against the transcript of the part it
+was written from, and reports any sentence scoring 0.90 or above for similarity.
+It names the lesson, the block, the source sentence and the score, in a section
+called `spec section B4`. The comparison can also be run on its own:
+
+```sh
+python3 server/verbatim.py courses/<CODE>
+```
+
+**It reports and does not block**, and it says so on every run. Most lessons
+still carry a passage, so a check that blocked today would stop lesson work
+altogether. A clean `ALL CHECKS PASS` printed underneath a list of passages does
+not mean those passages were accepted: it means they are waiting to be rewritten.
+
+The threshold has a control behind it rather than being a round number somebody
+liked. Every lesson compared against a *different* part's transcript scores zero
+at 0.90, so a hit means a sentence was carried across rather than two people
+writing about the same subject. If the threshold ever moves, that control is run
+again.
+
 
 ## C. Structure
 

@@ -1581,9 +1581,31 @@ What it adds when the server is there:
   @media print { .sv-panetabs { display: none !important; } }
 
   .sv-matbody { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  /* The player's permanent home. `flex: none` so it takes the height its own
-     aspect ratio asks for, and the swap area below gets what is left. */
-  .sv-matkeep { flex: none; display: flex; flex-direction: column; }
+  /* The player's permanent home, and the box that decided whether EH could see
+     his own controls.
+
+     🔴 IT WAS `flex: none`, WHICH MEANS "TAKE WHATEVER HEIGHT THE PICTURE ASKS
+     FOR" -- and the picture asks for a height derived from its WIDTH. So a wide
+     pane asked for more height than the pane had, and the caption strip and the
+     control bar went off the bottom. EH reported it twice in one sitting
+     (2026-09-05): *"you make it super wide, the bottom closed captions and
+     control pane disappear."* ⚠️ WIDENING THE WINDOW MADE IT WORSE, which reads
+     as absurd until you see that width was the input.
+
+     🟢 `0 1 auto` with `min-height: 0` lets this box SHRINK to the room the body
+     actually has. The strip and the bar below refuse to shrink (`flex: none` on
+     both), so every pixel of the shrink lands on the picture. **That is his
+     stated order of preference**: the controls are reserved FIRST and the
+     lecture takes the remainder, which is the opposite of what it did.
+
+     🟢 MEASURED OVER 15 PANE SIZES with `server/rig_matpane_fit.py`: the old
+     rule kept both on screen at **5** of them, this one at **15**, 1400x400
+     included. 🔴 **It was never only a wide-window bug**: 560x420 lost them too,
+     because the real cause is a height that is never bounded.
+
+     ⚠️ **The swap area still gets what is left**, which is what the old comment
+     here promised: nothing in this rule makes the box GROW. */
+  .sv-matkeep { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
   .sv-matkeep[hidden] { display: none; }
   .sv-matswap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
   /* The deck is the point of the panel, so it takes all the height there is. */
@@ -1794,8 +1816,20 @@ What it adds when the server is there:
      16:9 and stretching it to the panel's height would letterbox it into a
      strip. `background` rather than `--paper`: the bars beside a 4:3 recording
      should read as part of the player, not as a blank page. */
+  /* 🔴 THE SAME THREE DECLARATIONS AND THE SAME DEFECT AS `.sv-matpkg` ABOVE,
+     found while fixing that one: a height derived from the width, a
+     `max-height: 100%` that cannot bind, and the strip and bar as siblings
+     below. **A video lecture lost its controls in a wide pane exactly as a
+     slide package did**, and nobody had reported it because the complaint
+     arrived about the pop-out, which is usually a package.
+
+     ⚠️ NO `max-width` HERE, and that is the one difference. A package caps its
+     own slide at native size, so a wider frame is waste; a video has no such
+     cap, and a `<video>` letterboxes inside its own box against the black
+     above, which is what a player is supposed to look like. */
   .sv-matvid {
-    display: block; width: 100%; max-height: 100%; aspect-ratio: 16 / 9;
+    display: block; flex: 0 1 auto; min-height: 0;
+    width: 100%; height: auto; margin: 0 auto; aspect-ratio: 16 / 9;
     background: #000; border-bottom: 1px solid var(--rule);
   }
   /* ======================================================================
@@ -1838,8 +1872,28 @@ What it adds when the server is there:
      tall a lecture should be, and the frame collapsed from 383px to 150px with
      the aspect ratio simply gone. It was found by LOOKING at the screenshot
      that was being taken for EH, which is the argument for taking one. */
+  /* 🔴 `max-height: 100%` USED TO BE ON THIS RULE AND DID NOTHING AT ALL.
+     Measured 2026-09-15 in a real browser: at a 1400x900 pane the frame came
+     out 1400x885, which is exactly width/ratio, so the cap never bound. A
+     percentage max-height resolves against a parent whose own height came from
+     its contents, and that is not a height to take a percentage of. ⚠️ It read
+     as the guard that stopped this growing, which is why the bug survived
+     eleven days of the CSS being looked at.
+
+     🔴 AND `max-width` IS A MEASUREMENT, NOT A ROUND NUMBER. The export caps
+     its own slide at its native 1280x720 and never scales it UP: measured at
+     1400, 1600 and 1920 wide, the slide stayed 1280x720 and every extra pixel
+     of frame came back as the export's own grey. **1304x824 is the export's
+     whole natural size** (1280 + 12 either side; 720 + a 42px top panel and a
+     56px control pane), confirmed by reading the painted boxes rather than from
+     the comment above. So past 1304 a wider frame buys nothing but grey, which
+     is EH's second complaint: *"there's a lot of extra gray ... it takes extra
+     space."* 🟢 The share of the frame that is NOT slide goes 60% to 14% at
+     1920x1080 and 26% to 4% at 1400x900. */
   .sv-matpkg {
-    display: block; width: 100%; max-height: 100%; aspect-ratio: 1304 / 824;
+    display: block; flex: 0 1 auto; min-height: 0;
+    width: 100%; max-width: 1304px; height: auto; margin: 0 auto;
+    aspect-ratio: 1304 / 824;
     border: 0; border-bottom: 1px solid var(--rule); background: #8a8a8a;
   }
 
@@ -1864,8 +1918,12 @@ What it adds when the server is there:
      🟢 SELECTABLE, which is EH's earlier ruling and still true: he chose this
      placement in order to lift a sentence out of a lecture and into a note, so
      `user-select` here is a feature rather than an inherited default. */
+  /* 🔴 `flex: none` IS THE OTHER HALF OF THE RESERVATION, and without it the
+     first half does nothing. When `.sv-matkeep` shrinks, a flex item shrinks by
+     default; a squashed control bar is not a visible one, and the shrink has to
+     land somewhere, so it is told to land on the picture. */
   .sv-pkgcap {
-    display: flex; gap: 12px;
+    display: flex; flex: none; gap: 12px;
     padding: 12px 16px 13px;
     background: var(--surface);
     border-top: 1px solid var(--rule);
@@ -1983,7 +2041,7 @@ What it adds when the server is there:
 
   /* ---- the controls: one row, three zones, the bottom edge of the block ---- */
   .sv-pkgbar {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; flex: none; align-items: center; gap: 10px;
     padding: 9px 12px;
     background: var(--paper);
     border-top: 1px solid var(--rule-soft);
@@ -4436,6 +4494,18 @@ What it adds when the server is there:
      pattern, and the generic pattern is kept for the next pack. */
   function srcRank(src) {
     var n = String((src && src.source) || '');
+    /* 🔴 WHAT IT IS, BEFORE WHAT IT IS CALLED. The two name tests below are a
+       guess about the next pack's name, and the first guess was already wrong:
+       the rank reserved a slot by testing for the word "pack", the pack that
+       shipped called itself "Brain regions", and it sorted BELOW Wikipedia on
+       EH's own screen. Naming a pack after its subject is the convention the
+       first one set, so `Neurotransmitters` would land in the catch-all too.
+       The server now says `kind: 'pack'` and this reads the fact instead. */
+    if (src && src.kind === 'pack') return 0;
+    /* ⚠️ THE NAMES STAY AS A FALLBACK, and they are not dead: a reader whose
+       browser holds an older layer talks to the new server, and a new layer can
+       talk to a server that has not been restarted yet. Both must still put the
+       pack first. They can go when no server without `kind` is running. */
     if (n === 'Brain regions' || /\bpacks?\b/i.test(n)) return 0;
     if (n === 'This module') return 1;
     if (n === 'MeSH') return 2;
@@ -8670,7 +8740,25 @@ What it adds when the server is there:
   function markless(term, from) {
     term = String(term || '').replace(/\s+/g, ' ').trim();
     if (!term) return;
-    var key = 'c' + Date.now().toString(36);
+    /* 🔴 THE RANDOM TAIL IS THE POINT, and this key used to be the millisecond
+       alone. It is not just a name any more: since the cards merge it is the
+       card's IDENTITY ACROSS TWO DEVICES, so two Macs pressing Card inside one
+       millisecond minted the SAME key and the merge read one Mac's card as an
+       account of the other's. That is a deletion, which is the direction the
+       merge exists to prevent.
+
+       🟢 The same problem was solved properly six hours earlier in this file:
+       `newChatId` is the shape being copied here, so this is an existing answer
+       rather than a new idea.
+
+       ⚠️ OLD KEYS ARE LEFT ALONE, on the manager's ruling of 2026-09-09, and the
+       ruling turned out to be a measurement: there are ZERO stamped cards on
+       disk, so migrating would rewrite a file of EH's own study data to fix
+       nothing. Re-derived 2026-09-14 across all 30 card files including daily
+       snapshots: still zero. The server's own pattern already accepts the longer
+       shape, so nothing downstream changes. */
+    var key = 'c' + Date.now().toString(36) +
+              Math.random().toString(36).slice(2, 8).replace(/[^a-z0-9]/g, '');
     cards[key] = { term: term, def: '', source: '', url: '', from: from,
                    at: new Date().toISOString() };
     lookupMarkless(key);

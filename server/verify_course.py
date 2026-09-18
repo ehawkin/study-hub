@@ -384,9 +384,19 @@ def cap_recording_ids(ctx):
                   for e, d in sorted(shared.items())[:3]))
     if wrong:
         named = sorted(set(wrong))
+        # 🔴 "AFTER CORRECTING THE ID" PRESUMED THE ID WAS OURS TO CORRECT, and
+        # on the case that produced this row it was not. Read off the course site
+        # 2026-09-11: BOTH of that lecture's pages launch the SAME recording and
+        # the gallery publishes no separate second part, so `materials.json` is
+        # faithful and the duplication is upstream. ⚠️ A row that tells somebody
+        # to correct a faithful record sends them looking for an id that does not
+        # exist, and the only way to obey it is to invent one.
         note += ("; a LOCAL copy wins over the stream, and %s %s another "
-                 "lecture under %s own name: delete the .mp4 and the .m4a "
-                 "after correcting the id"
+                 "lecture under %s own name: delete the .mp4 and the .m4a once "
+                 "the id is settled. The duplicate may be UPSTREAM rather than "
+                 "ours: where a course publishes two pages that launch one "
+                 "recording, materials.json is faithful and there is no id to "
+                 "correct"
                  % (", ".join(named[:4]),
                     "holds" if len(named) == 1 else "hold",
                     "its" if len(named) == 1 else "their"))

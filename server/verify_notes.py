@@ -21,6 +21,7 @@ import split_lessons as SPLIT
 from doi_sidecar import DOI_SIDECAR, load_doi_exceptions
 import doi_links as DOILINK
 import shadow_records as SHADOW
+import verbatim as VERB
 
 
 def crossref_agent():
@@ -415,6 +416,35 @@ for p in NOTES:
             print("  %-22s b%-4d %-12s %s" % (p.name[:22], i, m.group(0), t[:60]))
             nb += 1
 print("  total: %d" % nb)
+
+# 🔴 SECTION B4, AND IT IS THE CHECK THAT DID NOT EXIST. §B forbade naming the
+# lecturer and said NOTHING about reusing the lecturer's sentences, so 164
+# passages accumulated across 62 lessons with every gate above green. A person
+# cannot see a borrowed sentence inside a four-thousand-word page; only a
+# comparison finds it, and there was no comparison.
+#
+# 🔴 IT REPORTS AND IT DOES NOT ADD TO `fails`, BY INSTRUCTION. 62 of 110 lessons
+# carried a passage when this was specified, so a blocking gate would have
+# stopped all lesson work on the day it shipped. The flip to blocking is its own
+# unit, taken when the rewrites are finished and the count is near zero.
+# ⚠️ Which means the header has to SAY it does not block. A reader who sees these
+# lines and then `ALL CHECKS PASS` would otherwise conclude the passages were
+# judged acceptable, and they are not: they are queued.
+print("\n=== spec section B4, how close a lesson sits to its source "
+      "(reported, never blocking yet) ===")
+VERBATIM_MATERIALS = VERB.materials_for(NOTES_DIR)
+if not VERBATIM_MATERIALS.is_dir():
+    # 🔴 A CHECK THAT COULD NOT RUN SAYS SO. It and a check that found nothing
+    # print the same zero otherwise, and only one of them is good news. This is
+    # the ordinary case for `--notes` pointed at a copy, where the course's
+    # materials are not beside it.
+    print("  no materials directory at %s, so nothing was compared"
+          % VERBATIM_MATERIALS)
+elif VERB.find_pdftotext() is None:
+    print("  pdftotext was not found, so the transcripts cannot be read and "
+          "nothing was compared; set STUDY_HUB_PDFTOTEXT or install poppler")
+else:
+    VERB.report(*VERB.scan(NOTES, VERBATIM_MATERIALS))
 
 
 # One bad character in a JavaScript string literal takes the whole page down, and it
