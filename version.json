@@ -1,5 +1,14 @@
 {
- "version": "2026.09.18b+349f7ca",
+ "version": "2026.09.18c+13dd1e34",
  "url": "https://github.com/ehawkin/study-hub/releases/latest",
- "note": "The caption engine now ships in the kit and installs itself on a click: caption_course.py --install builds its own venv with pinned torch, torchaudio and numpy plus a bundled ffmpeg, warms the model once, and the wizard Captions checkbox and the Settings button work on a Mac that has only the kit. Ten more generator modules join the kit, 65 files in all."
+ "note": "The brain-region picture pack is now an optional download beside the kit: the course setup page offers it, Settings installs it on a click, and regionpack.py --install checks every file against the pack's own manifest before the reader shows any of it. The kit itself is unchanged.",
+ "packs": {
+  "brain-regions": {
+   "version": "1.0.0",
+   "name": "knowledge-pack-brain-regions-1.0.0.zip",
+   "url": "https://github.com/ehawkin/study-hub/releases/download/v2026.09.18c/knowledge-pack-brain-regions-1.0.0.zip",
+   "bytes": 46057897,
+   "sha256": "f7f9349dbddc0f508a3e3abb14a8380ebeec9df8d767e36e74b95a16f2b20a82"
+  }
+ }
 }

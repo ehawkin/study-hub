@@ -123,6 +123,16 @@ you what it would need first. ⚠️ Reading a transcript also needs `pdftotext`
 which the install cannot supply; on a Mac with Homebrew it is
 `brew install poppler`, and the readiness report says so when it is missing.
 
+**Brain-region pictures are optional, and one download serves every course.**
+Without them a region named in a lesson opens on whatever Wikipedia leads
+with; with them, on a labelled plate chosen for the purpose, with a
+definition. The wizard's checkbox, **Install the pictures** in Settings, or
+`python3 server/regionpack.py --install` from the Study Hub folder all do the
+same thing: fetch about 44 megabytes once, from the same release the kit came
+from, check it, and put it in the folder's own `knowledge-packs/`, with no
+restart. The verb prints a line saying the plates have not had a formal domain
+review; that is a fact about the pack, not an error, and they should see it.
+
 ### 6. Offer to keep it running
 
 Ask whether they want the reader to come back on its own after a restart. If

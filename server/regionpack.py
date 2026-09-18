@@ -28,10 +28,25 @@ knowing anything about how it was made.
 🟢 **A MISSING OR UNREADABLE PACK IS NOT AN ERROR.** Every entry point answers
 "nothing here" and the caller falls back to the network exactly as it did before
 the pack existed, which is what makes wiring this in additive.
+
+🟢 **THE PACK DOES NOT SHIP IN THE KIT; IT SHIPS BESIDE IT.** The second half of
+this file packages the pack as its own release asset, named in the update feed,
+and fetches, checks and installs it on a recipient's machine when they ask for
+it (EH, 2026-09-17: *"give people the option to download the NeuroScience image
+and glossary package"*).
 """
+import argparse
+import hashlib
+import io
 import json
+import os
 import re
+import shutil
+import subprocess
+import sys
+import time
 import urllib.parse
+import zipfile
 from pathlib import Path
 
 PACK_ID = "brain-regions"
@@ -100,12 +115,13 @@ def definitions(force=False):
     while an alias is a thing it merely allows. First writer wins among aliases,
     which is arbitrary and is why they lose to headings rather than racing them.
 
-    🟢 Cached like `load()`, including the failure, and for the same reason: a
-    pack that is not there will not appear while the server runs, and a rebuilt
-    pack needs a restart.
+    🟢 Cached like `load()`, and with the same one exception: an ABSENT file is
+    re-checked with a stat on each call, so a pack installed while the server
+    runs is read on the next lookup. A REBUILT pack still needs `force=True` or a
+    restart, because a file that is there is not re-read.
     """
     global _DEFS
-    if _DEFS is not None and not force:
+    if _DEFS is not None and not force and (_DEFS or not DEFS_FILE.is_file()):
         return _DEFS
     out = {}
     try:
@@ -268,14 +284,21 @@ def definition(title, wiki=None):
 def load(force=False):
     """`pack.json` and `regions.json`, read once per process.
 
-    ⚠️ Cached deliberately, including the FAILURE. A pack that is not there will
-    not appear while the server is running, and re-reading a missing file on
-    every lookup would be a syscall per term for nothing. **A rebuilt pack needs
-    a restart**, which is true of every other change to this server's Python and
-    is the same trade `vendor_version()` makes.
+    ⚠️ Cached deliberately once it has been READ. **A rebuilt pack needs
+    `force=True` or a restart**, which is true of every other change to this
+    server's Python and is the same trade `vendor_version()` makes.
+
+    🟢 **The one exception is ABSENCE, which is not cached**, since 2026-09-18:
+    a pack that was not there is looked for again on the next call, one stat per
+    lookup while it stays absent. That is what lets `install()` in another
+    process (the `--install` verb a person or the Settings page runs) put the
+    pack under a running server and have the next lookup show a plate, with no
+    restart. Caching the failure was the earlier trade; a stat per lookup on a
+    machine with no pack costs nothing a Wikipedia fetch does not dwarf.
     """
     global _LOADED
-    if _LOADED is not None and not force:
+    if (_LOADED is not None and not force
+            and (_LOADED["version"] or not (PACK_DIR / "pack.json").is_file())):
         return _LOADED
     out = {"version": "", "regions": {}, "files": frozenset()}
     try:
@@ -467,3 +490,530 @@ def image_bytes(name):
         return (IMAGE_DIR / name).read_bytes()
     except OSError:
         return None
+
+
+# --------------------------------------------------------------------------
+# The pack as a RELEASE ASSET: built here, fetched here, verified here
+# --------------------------------------------------------------------------
+#
+# EH, 2026-09-17: *"I wonder if, in our installer, we could give people the
+# option to download the NeuroScience image and glossary package."*
+#
+# 🔴 THE KIT DOES NOT CARRY THE PACK, AND THAT DOES NOT CHANGE HERE. It is 44 MB
+# against a kit of under one, and `formal_domain_review: required` is a fact
+# about it that a recipient should meet before the plates are on their disk.
+# So the pack travels as its OWN asset on the kit's release, named in the
+# update feed under `packs`, and a person fetches it once, on purpose, from
+# the wizard's tick, the Settings button or the verb below. Everything the
+# reader needs is in the asset: the plates, the cross-reference AND the
+# definitions file, because `pack_lookup` serves that file's prose today.
+#
+# 🟢 NOTHING HERE READS THE NETWORK UNLESS ASKED. `install()` takes its fetch
+# as an argument so a test can hand it bytes; `write_asset()` only reads the
+# tree it is given.
+
+# What the authoring copy holds that a reader has no use for, each with the
+# reason, so the list can be argued with rather than guessed at. 🔴 NOT
+# `definitions/`: `REGION-PACK.md` is the glossary half of the pack, and the
+# reader's lookup card serves it. Only its superseded drafts stay behind.
+ASSET_EXCLUDED = {
+    "authoring": "the guides and the verifier that MADE the pack, not what it holds",
+    "reviews": "the review arguments; their outcomes are already in the pack",
+    "definitions/zz-superseded": "drafts the reader never loads",
+}
+# A file of any other kind under the pack is a stray (a `.bak` beside the
+# definitions, a `.DS_Store`) and never ships.
+ASSET_SUFFIXES = (".json", ".md", ".png")
+MANIFEST = "MANIFEST.json"
+# Printed once by every install, because `pack.json` says `status: candidate`
+# and `formal_domain_review: required`, and a person who just fetched 44 MB of
+# anatomy is entitled to read that in words.
+REVIEW_SENTENCE = ("This pack's plates and definitions have not had a formal "
+                   "domain review (pack.json says so): study from them; do not "
+                   "publish them as authoritative.")
+# Where an install started from the Settings page leaves its record and its
+# log, beside the caption engine's: the machine's own state folder, never the
+# kit. Tests point this at a scratch folder.
+STATE_DIR = Path("~/.kcl-study").expanduser()
+
+
+class InstallProblem(Exception):
+    """Anything that stops an install, said for a person."""
+
+
+def pack_version(pack_dir=None):
+    """The version `pack.json` states, read NOW and never cached. Empty when
+    there is no readable pack. `version()` above is the reader's cached view;
+    this is the installer's, which has to see a folder that just appeared."""
+    root = Path(pack_dir or PACK_DIR)
+    try:
+        meta = json.loads((root / "pack.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(meta.get("version") or "") if isinstance(meta, dict) else ""
+
+
+def pack_counts(pack_dir=None):
+    """`pack.json`'s own `counts`, uncached, or {} when there is no pack."""
+    root = Path(pack_dir or PACK_DIR)
+    try:
+        meta = json.loads((root / "pack.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    counts = meta.get("counts") if isinstance(meta, dict) else None
+    return counts if isinstance(counts, dict) else {}
+
+
+def _excluded(rel):
+    return any(rel == ex or rel.startswith(ex + "/") for ex in ASSET_EXCLUDED)
+
+
+def asset_files(pack_dir=None):
+    """The relative paths that make up the asset, sorted: everything under the
+    pack except the excluded folders, hidden names, bytecode and files of a
+    kind the pack does not consist of. The manifest itself is never listed,
+    so listing an INSTALLED copy gives the same answer as listing the source."""
+    root = Path(pack_dir or PACK_DIR)
+    out = []
+    for p in sorted(root.rglob("*")):
+        if not p.is_file():
+            continue
+        parts = p.relative_to(root).parts
+        rel = "/".join(parts)
+        if rel == MANIFEST or _excluded(rel):
+            continue
+        if any(part.startswith(".") or part == "__pycache__" for part in parts):
+            continue
+        if p.suffix.lower() not in ASSET_SUFFIXES:
+            continue
+        out.append(rel)
+    return out
+
+
+def manifest_for(pack_dir=None):
+    """What the asset carries, by name, size and sha256, so an unpacked copy can
+    be checked file by file rather than trusted because the zip opened."""
+    root = Path(pack_dir or PACK_DIR)
+    files = {}
+    for rel in asset_files(root):
+        data = (root / rel).read_bytes()
+        files[rel] = {"bytes": len(data),
+                      "sha256": hashlib.sha256(data).hexdigest()}
+    return {"pack": PACK_ID, "version": pack_version(root), "files": files,
+            "count": len(files),
+            "bytes": sum(f["bytes"] for f in files.values())}
+
+
+def asset_name(version):
+    return "knowledge-pack-%s-%s.zip" % (PACK_ID, version)
+
+
+def write_asset(out_dir, pack_dir=None):
+    """The asset, written under `out_dir` and named for the pack's version.
+
+    Every member sits under one top folder named `PACK_ID`, with the manifest
+    beside `pack.json`. 🟢 Deterministic: fixed timestamps and a fixed order,
+    so building the same pack twice gives the same bytes and the same sha256,
+    which is what lets the feed's hash be checked against a rebuild."""
+    root = Path(pack_dir or PACK_DIR)
+    manifest = manifest_for(root)
+    if not manifest["version"]:
+        raise RuntimeError("no pack.json with a version under %s, so there is "
+                           "nothing to package" % root)
+    plates = [rel for rel in manifest["files"] if rel.endswith(".png")]
+    if not plates:
+        raise RuntimeError("the pack under %s has no plates, so it is not a "
+                           "picture pack" % root)
+    path = Path(out_dir) / asset_name(manifest["version"])
+    if path.exists():
+        path.unlink()
+    stamp = (1980, 1, 1, 0, 0, 0)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for rel in manifest["files"]:
+            info = zipfile.ZipInfo("%s/%s" % (PACK_ID, rel), date_time=stamp)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            z.writestr(info, (root / rel).read_bytes())
+        info = zipfile.ZipInfo("%s/%s" % (PACK_ID, MANIFEST), date_time=stamp)
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.external_attr = 0o644 << 16
+        z.writestr(info, json.dumps(manifest, indent=1, sort_keys=True) + "\n")
+    return path
+
+
+def asset_facts(path):
+    """{name, bytes, sha256} of a written asset: what the feed states about it
+    and what an install checks the download against."""
+    data = Path(path).read_bytes()
+    return {"name": Path(path).name, "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def unpack_problems(folder):
+    """[what is wrong] with an unpacked copy, checked against the manifest it
+    carries. Empty means every named file is present with its stated bytes and
+    hash, nothing else is there, and `pack.json` agrees about the version."""
+    folder = Path(folder)
+    try:
+        manifest = json.loads((folder / MANIFEST).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return ["no readable %s: %s" % (MANIFEST, exc)]
+    if not isinstance(manifest, dict):
+        return ["%s is not an object" % MANIFEST]
+    out = []
+    if manifest.get("pack") != PACK_ID:
+        out.append("the manifest is for %r, not %s" % (manifest.get("pack"), PACK_ID))
+    files = manifest.get("files")
+    if not isinstance(files, dict) or not files:
+        return out + ["the manifest names no files"]
+    have = pack_version(folder)
+    if not have or have != str(manifest.get("version") or ""):
+        out.append("pack.json says version %r but the manifest says %r"
+                   % (have, manifest.get("version")))
+    for rel, meta in sorted(files.items()):
+        meta = meta if isinstance(meta, dict) else {}
+        try:
+            data = (folder / rel).read_bytes()
+        except OSError:
+            out.append("missing: %s" % rel)
+            continue
+        if (len(data) != meta.get("bytes")
+                or hashlib.sha256(data).hexdigest() != meta.get("sha256")):
+            out.append("does not match its manifest entry: %s" % rel)
+    extra = sorted(
+        p.relative_to(folder).as_posix() for p in folder.rglob("*")
+        if p.is_file() and p.name != MANIFEST
+        and not any(part.startswith(".") for part in p.relative_to(folder).parts)
+        and p.relative_to(folder).as_posix() not in files)
+    if extra:
+        out.append("%d file(s) the manifest does not name, e.g. %s"
+                   % (len(extra), extra[0]))
+    return out
+
+
+def looks_authored(pack_dir=None):
+    """True for the copy that is BEING WRITTEN (the repository's, with its
+    authoring notes and reviews), which git keeps current and an install must
+    never replace with a reader's copy of itself."""
+    root = Path(pack_dir or PACK_DIR)
+    return any((root / ex).exists() for ex in ASSET_EXCLUDED)
+
+
+def default_feed():
+    """The kit's update feed, from the same config the reader reads, so the
+    verb and the reader can never point at two different feeds. The shipped
+    default when this machine has no config yet."""
+    try:
+        import study_server as S
+    except ImportError:
+        return ""
+    cfg = dict(S.DEFAULT_CONFIG)
+    try:
+        if Path(S.CONFIG_PATH).exists():
+            cfg = S.load_config()
+    except (OSError, ValueError, SystemExit):
+        pass
+    return str(cfg.get("update_url") or "").strip()
+
+
+def _fetch(url):
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "study-hub-pack"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read()
+
+
+def feed_entry(feed):
+    """This pack's entry out of a parsed feed, or None when the feed has none."""
+    packs = feed.get("packs") if isinstance(feed, dict) else None
+    entry = packs.get(PACK_ID) if isinstance(packs, dict) else None
+    return entry if isinstance(entry, dict) and entry.get("url") else None
+
+
+def install(feed_url=None, pack_dir=None, fetch=None, say=print, force=False):
+    """Fetch the pack the feed names, check it, and put it where the reader looks.
+
+    The order is the order of the ways it can go wrong: the feed first (is
+    there a pack at all), then the download against the feed's size and hash,
+    then the unpacked files against the manifest inside, and only then the
+    swap, which is two renames. 🔴 Nothing is written under `pack_dir` until
+    every check has passed, so a failed install leaves whatever was there.
+
+    Returns {"ok", "version", "changed", "files"}; raises InstallProblem with
+    the sentence for a person. `say` gets the progress lines and, once, the
+    review sentence."""
+    root = Path(pack_dir or PACK_DIR)
+    fetch = fetch or _fetch
+    url = feed_url or default_feed()
+    if not url:
+        raise InstallProblem("the update feed is off in this config, so there "
+                             "is nowhere to fetch the pack from")
+    try:
+        feed = json.loads(fetch(url).decode("utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError) as exc:
+        raise InstallProblem("the update feed at %s could not be read: %s" % (url, exc))
+    entry = feed_entry(feed)
+    if entry is None:
+        raise InstallProblem("the update feed at %s names no %s pack, so there "
+                             "is nothing to fetch" % (url, PACK_ID))
+    want = str(entry.get("version") or "")
+    have = pack_version(root)
+    if have and have == want and not force:
+        say("already installed: %s %s at %s" % (PACK_ID, have, root))
+        return {"ok": True, "version": have, "changed": False,
+                "files": len(asset_files(root))}
+    if have and looks_authored(root):
+        raise InstallProblem("%s is the authoring copy of the pack (it has %s), "
+                             "which git keeps current; not replacing it with a "
+                             "reader's copy" % (root, ", ".join(sorted(ASSET_EXCLUDED))))
+    name = str(entry.get("name") or asset_name(want))
+    size = entry.get("bytes") if isinstance(entry.get("bytes"), int) else 0
+    say("downloading %s%s from %s"
+        % (name, " (%d MB)" % round(size / 1048576) if size else "", entry["url"]))
+    try:
+        data = fetch(entry["url"])
+    except OSError as exc:
+        raise InstallProblem("the download failed: %s" % exc)
+    if size and len(data) != size:
+        raise InstallProblem("the download is %d bytes but the feed says %d, so "
+                             "it was refused" % (len(data), size))
+    want_sha = str(entry.get("sha256") or "")
+    if want_sha and hashlib.sha256(data).hexdigest() != want_sha:
+        raise InstallProblem("the download's sha256 does not match the feed's, "
+                             "so it was refused")
+    stage = root.parent / (".%s-incoming" % PACK_ID)
+    if stage.exists():
+        shutil.rmtree(stage)
+    stage.mkdir(parents=True)
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            for info in z.infolist():
+                if info.is_dir():
+                    continue
+                top, _, rel = info.filename.partition("/")
+                parts = rel.split("/") if rel else []
+                if (top != PACK_ID or not parts or "" in parts or ".." in parts
+                        or "\\" in rel):
+                    raise InstallProblem("refusing a member outside %s/: %s"
+                                         % (PACK_ID, info.filename))
+                target = stage.joinpath(*parts)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(z.read(info))
+    except zipfile.BadZipFile as exc:
+        shutil.rmtree(stage)
+        raise InstallProblem("the download is not a zip: %s" % exc)
+    except InstallProblem:
+        shutil.rmtree(stage)
+        raise
+    problems = unpack_problems(stage)
+    if not problems and want and pack_version(stage) != want:
+        problems.append("the feed says version %s but the pack says %s"
+                        % (want, pack_version(stage)))
+    if problems:
+        shutil.rmtree(stage)
+        raise InstallProblem("the unpacked pack does not match its manifest, so "
+                             "nothing was installed:\n  " + "\n  ".join(problems))
+    n = len(asset_files(stage))
+    old = None
+    if root.exists():
+        old = root.parent / (".%s-replaced" % PACK_ID)
+        if old.exists():
+            shutil.rmtree(old)
+        root.rename(old)
+    stage.rename(root)
+    if old is not None:
+        shutil.rmtree(old)
+    say("installed %s %s: %d files at %s" % (PACK_ID, pack_version(root), n, root))
+    say(REVIEW_SENTENCE)
+    # The reader in THIS process sees it now; another process (the server,
+    # when this ran from the command line) sees it on its next lookup, because
+    # `load()` and `definitions()` re-check an absent pack rather than caching
+    # the absence.
+    if root == Path(PACK_DIR):
+        load(force=True)
+        definitions(force=True)
+    return {"ok": True, "version": pack_version(root), "changed": True, "files": n}
+
+
+# ---- an install started from the Settings page, in its own process ----------
+
+def record_path():
+    return STATE_DIR / ("knowledge-pack-%s-install.json" % PACK_ID)
+
+
+def log_path():
+    return STATE_DIR / ("knowledge-pack-%s-install.log" % PACK_ID)
+
+
+def read_record():
+    try:
+        data = json.loads(record_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_record(data):
+    path = record_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".part")
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except (OSError, ValueError, TypeError):
+        return False
+    return True
+
+
+def _log_tail(n=12):
+    try:
+        lines = log_path().read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    return [ln for ln in lines if ln.strip()][-n:]
+
+
+def install_status(pack_dir=None):
+    """What the Settings page asks on every render. Reads the disk, starts
+    nothing, and never trusts the cached `load()`: a pack that arrived a
+    moment ago must read as installed on the next poll."""
+    root = Path(pack_dir or PACK_DIR)
+    ver = pack_version(root)
+    counts = pack_counts(root)
+    rec = read_record()
+    state = rec.get("state") or ("done" if ver else "never")
+    running = state == "running" and _alive(rec.get("pid"))
+    error = rec.get("error") or ""
+    if state == "running" and not running:
+        state = "failed"
+        error = error or "the install stopped without finishing"
+    return {"installed": bool(ver), "version": ver,
+            "plates": int(counts.get("plates") or 0),
+            "regions": int(counts.get("regions") or 0),
+            "running": running, "state": state,
+            "started": rec.get("started"), "finished": rec.get("finished"),
+            "error": error, "path": str(root),
+            "log_tail": _log_tail() if state != "never" else []}
+
+
+def start_install(feed_url=None, popen=None, python_bin=None):
+    """Start `--install` in its OWN process and answer at once, the shape of
+    the caption engine's install: an HTTP handler must not hold a 44 MB
+    download, and a server restart must not kill one halfway."""
+    now = install_status()
+    if now["running"]:
+        return {"ok": False, "error": "an install is already going",
+                "pid": read_record().get("pid")}
+    if now["installed"]:
+        return {"ok": False, "error": "the pack is already installed (%s)" % now["version"]}
+    url = feed_url or default_feed()
+    if not url:
+        return {"ok": False, "error": "the update feed is off in this config, so "
+                                      "there is nowhere to fetch the pack from"}
+    logfile = log_path()
+    logfile.parent.mkdir(parents=True, exist_ok=True)
+    argv = [python_bin or sys.executable, str(Path(__file__).resolve()),
+            "--install", "--feed", url]
+    with open(logfile, "a", encoding="utf-8") as handle:
+        handle.write("\n==== %s ====\n" % time.strftime("%Y-%m-%d %H:%M:%S"))
+        handle.flush()
+        proc = (popen or subprocess.Popen)(
+            argv, stdout=handle, stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL, start_new_session=True,
+            cwd=str(Path(__file__).resolve().parent))
+    pid = getattr(proc, "pid", None)
+    write_record({"pid": pid, "state": "running",
+                  "started": time.strftime("%Y-%m-%d %H:%M:%S"), "log": str(logfile)})
+    return {"ok": True, "pid": pid, "log": str(logfile)}
+
+
+def _say(*bits):
+    print(*bits)
+    sys.stdout.flush()
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        description="the brain-region picture pack: fetch it, check it, package it")
+    ap.add_argument("--install", action="store_true",
+                    help="fetch the pack the update feed names and install it")
+    ap.add_argument("--start", action="store_true",
+                    help="the same install in its own process; answer at once")
+    ap.add_argument("--status", action="store_true",
+                    help="is it installed, and how does an install stand")
+    ap.add_argument("--asset", metavar="OUT_DIR",
+                    help="write the release asset for the pack in this tree")
+    ap.add_argument("--verify", metavar="DIR", nargs="?", const="",
+                    help="check an installed copy against its manifest")
+    ap.add_argument("--feed", default="", help="the update feed URL (default: the config's)")
+    ap.add_argument("--pack-dir", default="", help="where the pack is (default: the kit's)")
+    ap.add_argument("--force", action="store_true",
+                    help="install even though this version is already there")
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args(argv)
+    pack_dir = Path(a.pack_dir).expanduser() if a.pack_dir else None
+
+    if a.asset:
+        path = write_asset(a.asset, pack_dir)
+        facts = asset_facts(path)
+        _say("%s: %d files, %.1f MB, sha256 %s"
+             % (path, len(asset_files(pack_dir)), facts["bytes"] / 1048576,
+                facts["sha256"][:16]))
+        return 0
+    if a.verify is not None:
+        where = Path(a.verify).expanduser() if a.verify else (pack_dir or PACK_DIR)
+        problems = unpack_problems(where)
+        if problems:
+            _say("%s does not match its manifest:" % where)
+            for line in problems:
+                _say("  " + line)
+            return 1
+        _say("%s matches its manifest: %d files, version %s"
+             % (where, len(asset_files(where)), pack_version(where)))
+        return 0
+    if a.status:
+        data = install_status(pack_dir)
+        if a.json:
+            json.dump(data, sys.stdout, indent=2, sort_keys=True)
+            sys.stdout.write("\n")
+        elif data["installed"]:
+            _say("installed: %s %s, %d plates for %d regions, at %s"
+                 % (PACK_ID, data["version"], data["plates"], data["regions"], data["path"]))
+        else:
+            _say("not installed (%s)%s" % (data["state"],
+                                           ": " + data["error"] if data["error"] else ""))
+        return 0
+    if a.start:
+        out = start_install(a.feed or None)
+        if a.json:
+            json.dump(out, sys.stdout)
+            sys.stdout.write("\n")
+        else:
+            _say(out.get("log") if out.get("ok") else out.get("error"))
+        return 0 if out.get("ok") else 1
+    if a.install:
+        # The record is written on the way out, for the Settings page that
+        # started this in its own process; harmless when a person ran it.
+        try:
+            out = install(a.feed or None, pack_dir, say=_say, force=a.force)
+        except InstallProblem as exc:
+            _say("not installed: %s" % exc)
+            write_record(dict(read_record(), state="failed", error=str(exc),
+                              finished=time.strftime("%Y-%m-%d %H:%M:%S")))
+            return 1
+        write_record(dict(read_record(), state="done", error="",
+                          version=out["version"],
+                          finished=time.strftime("%Y-%m-%d %H:%M:%S")))
+        return 0
+    ap.print_help()
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

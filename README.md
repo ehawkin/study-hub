@@ -197,6 +197,15 @@ If anything stops working, ask. "The reader won't open" is enough to go on.
   you the size before it starts. Nothing runs unless you tick or click. (Reading
   a transcript needs one more tool, `pdftotext`; if Settings says it is missing,
   it names where it comes from.)
+- **Brain-region pictures are optional, one download for every course.** A
+  region named in a lesson opens on a picture; without the pack it is whatever
+  Wikipedia leads with, and with it a labelled plate chosen for the purpose,
+  with a definition. Tick the box in the wizard, or use **Install the
+  pictures** in Settings, or run `python3 server/regionpack.py --install`
+  from the Study Hub folder. About 44 megabytes, once, into the folder's own
+  `knowledge-packs/`, checked against the release it came from, and no
+  restart. The plates have not had a formal review by a domain expert, and
+  the install says so: study from them, do not cite them.
 
 ---
 
@@ -225,7 +234,8 @@ page. It never updates itself and it never nags.
 
 Upgrading is a folder swap. Download the new `study-hub.zip` as above, then
 **replace only the `server` and `.claude` folders** in your existing folder with
-the new ones. Leave everything else alone.
+the new ones. Leave everything else alone. The brain-region pictures, if you
+installed them, live in `knowledge-packs/` and stay where they are.
 
 🔴 **Do NOT replace the whole folder.** Your lessons, highlights and notes live
 in `courses/`, and your settings live outside the folder entirely, in

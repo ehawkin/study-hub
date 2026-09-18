@@ -2434,8 +2434,10 @@ def pack_lookup(term, wiki=None, with_plates=True):
     oversight.** It says to cache this the way the picture path is cached. That
     cache exists because `region_image` goes to Wikipedia; **nothing here leaves
     the process.** `regionpack.load()` and `definitions()` are read once per
-    process, so a disk cache would add a syscall, a staleness class and a second
-    thing to invalidate when the pack is rebuilt, in exchange for nothing. The
+    process (an ABSENT pack is looked for again, so one installed under a
+    running server is seen on the next lookup), so a disk cache would add a
+    syscall, a staleness class and a second thing to invalidate when the pack
+    is rebuilt, in exchange for nothing. The
     property step 5 was protecting -- that a rebuilt pack cannot serve stale
     plates -- is kept by construction here, because there is nothing to go stale.
 
@@ -9017,6 +9019,21 @@ WIZARD_PAGE = """<!-- study-wizard -->
       </div>
     </div>
 
+    <div class="piece" id="p-pack"%(pack_hidden)s>
+      <label class="ptop"><input type="checkbox" id="w-pack">
+        <span><b>Brain-region pictures</b>, one download shared by every course
+          <b class="cost">once</b></span></label>
+      <div class="popts" id="o-pack">
+        <p class="hint">Labelled plates of the brain regions, so a region named
+           in a lesson opens on a picture chosen for that purpose rather than
+           whatever Wikipedia leads with, and its definition with it. Downloaded
+           once for every course you have, not once per course, and kept when
+           you upgrade. The plates have not had a formal review by a domain
+           expert: study from them, do not cite them.
+           <span class="sz" id="sz-pack"></span></p>
+      </div>
+    </div>
+
     <div class="piece">
       <label class="ptop"><input type="checkbox" id="w-consol">
         <span><b>Consolidated PDFs</b>, one per week and one for the whole
@@ -9165,11 +9182,13 @@ WIZARD_PAGE = """<!-- study-wizard -->
   var box = { lessons: document.getElementById('w-lessons'),
               videos: document.getElementById('w-videos'),
               captions: document.getElementById('w-captions'),
+              pack: document.getElementById('w-pack'),
               consol: document.getElementById('w-consol'),
               readings: document.getElementById('w-readings') };
   var opts = { lessons: document.getElementById('o-lessons'),
                videos: document.getElementById('o-videos'),
                captions: document.getElementById('o-captions'),
+               pack: document.getElementById('o-pack'),
                consol: document.getElementById('o-consol'),
                readings: document.getElementById('o-readings') };
   var already = { lessons: document.getElementById('a-lessons'),
@@ -9217,6 +9236,15 @@ WIZARD_PAGE = """<!-- study-wizard -->
      is a requirement rather than a flourish, so it is built in
      `caption_count_line` where a test can run it. */
   already.captions.textContent = STATUS.captions_line || '';
+  /* 🔴 THE ONE PIECE THAT IS NOT A COURSE PIECE, and the one hard-coded
+     default on this page, both on purpose. The picture pack is shared by every
+     course on the machine, so "what this course lacks" is the wrong question:
+     when the pack is installed the whole piece is hidden (`p-pack`), and when
+     it is not, it starts UNTICKED. The entry that specified it (EH, 2026-09-17:
+     "give people the option to download") says DEFAULT OFF, because it is 44 MB
+     of anatomy that a person should choose rather than receive, and the
+     course-pieces rule above was never about it. */
+  box.pack.checked = false;
   already.consol.textContent = STATUS.consolidated
     ? 'already built: ' + STATUS.consolidated + ' PDF'
       + (STATUS.consolidated === 1 ? '' : 's') : '';
@@ -9235,6 +9263,20 @@ WIZARD_PAGE = """<!-- study-wizard -->
       'About ' + human(STATUS.pack_bytes) + ' for this course, measured from '
       + 'the mirrored copies.';
   }
+  /* The picture pack's size comes from the update feed, which names the asset
+     and its bytes, rather than from a number typed here that would go stale
+     the first time the pack is rebuilt. Silent when the feed is off, cannot be
+     reached, or names no pack: a missing size says nothing rather than guessing. */
+  fetch('/api/update', { headers: window.STUDYTOKEN.headers({}) })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      var p = d && d.packs && d.packs['brain-regions'];
+      if (p && p.bytes) {
+        document.getElementById('sz-pack').textContent =
+          'About ' + human(p.bytes) + ', measured.';
+      }
+    })
+    .catch(function () {});
   document.getElementById('pieces').textContent = 'This course so far: '
     + (STATUS.lessons ? STATUS.lessons + ' lesson' + (STATUS.lessons === 1 ? '' : 's') : 'no lessons yet')
     + ' \u00b7 ' + (STATUS.videos ? 'videos wired for ' + STATUS.videos : 'no videos yet')
@@ -9270,6 +9312,7 @@ WIZARD_PAGE = """<!-- study-wizard -->
   function frag(piece) {
     if (piece === 'consol') { return FRAGS.consol; }
     if (piece === 'captions') { return FRAGS.captions; }
+    if (piece === 'pack') { return FRAGS.pack; }
     if (piece === 'videos') {
       /* A course that already has its links wired is here for the downloads:
          the job must not tell Claude to collect what is already in. */
@@ -9297,10 +9340,11 @@ WIZARD_PAGE = """<!-- study-wizard -->
     });
     opts.videos.hidden = !box.videos.checked;
     opts.captions.hidden = !box.captions.checked;
+    opts.pack.hidden = !box.pack.checked;
     opts.consol.hidden = !box.consol.checked;
     document.getElementById('o-dl').hidden = !dl.gate.checked;
     var jobs = [];
-    ['lessons', 'videos', 'captions', 'consol', 'readings'].forEach(function (p) {
+    ['lessons', 'videos', 'captions', 'consol', 'readings', 'pack'].forEach(function (p) {
       if (box[p].checked) { jobs.push(frag(p)); }
     });
     if (!jobs.length) {
@@ -10693,6 +10737,20 @@ WIZ_CAPTIONS = ('Build the captions for this course: run '
                 'of a few hundred MB, and it prints the size before it starts; '
                 'then build.')
 
+# The picture pack is not course work and the verb is not a build: one fetch,
+# checked against the feed, into the kit's own folder. Named exactly, because
+# a session told to "download the brain pictures" will find some other way.
+# 🟢 It says the review line's meaning up front, so the sentence the verb
+# prints does not surprise the person reading the session's output.
+WIZ_PACK = ('Install the brain-region pictures: run '
+            'python3 server/regionpack.py --install from the repository root. '
+            'One download of about 44 MB, shared by every course on this '
+            'machine and kept across upgrades; it prints the size, checks the '
+            'download against the feed, and needs no restart. It also prints a '
+            'line saying the plates have not had a formal domain review, which '
+            'is a fact about the pack and not an error: show me that line. Do '
+            'not fetch pictures from anywhere else.')
+
 WIZ_READINGS_LOCAL = ('Summarise the core readings I already have downloaded: '
                       'the folder is: <paste the readings folder here>. Run '
                       'each PDF through the pdf-fix step first, then use the '
@@ -11557,6 +11615,7 @@ SETTINGS_PAGE = """<!-- study-settings -->
 
   %(courses)s
   %(captions)s
+  %(pack)s
 
   <section>
     <h2>This machine</h2>
@@ -11723,6 +11782,90 @@ SETTINGS_PAGE = """<!-- study-settings -->
       .catch(function () { tellCap('Could not reach the server.', true); inst.disabled = false; });
   });
   sel.addEventListener('change', load);
+  load();
+}());
+
+(function () {
+  /* The picture pack row. GET /api/packs reads the disk and the feed and starts
+     nothing; POST /api/packs/install starts the fetch in its own process, on a
+     click and nowhere else, the shape of the caption engine's install above. */
+  var btn = document.getElementById('packinstall');
+  if (!btn) { return; }
+  var sum = document.getElementById('packsum'), says = document.getElementById('packsays');
+  var log = document.getElementById('packlog');
+  var timer = null;
+
+  function tellPack(msg, bad) {
+    says.textContent = msg || '';
+    says.classList.toggle('bad', !!bad);
+  }
+  function mb(n) { return Math.round(n / 1048576) + ' MB'; }
+
+  function draw(d) {
+    btn.hidden = true; log.hidden = true;
+    if (!d || !d.ok) {
+      sum.textContent = '';
+      tellPack((d && d.error) || 'Could not read the pack.', true);
+      return;
+    }
+    var tail = (d.log_tail || []).join('\\n');
+    var feed = d.feed || null;
+    if (d.installed) {
+      sum.textContent = 'Installed: version ' + d.version + ', ' + d.plates
+        + ' plates for ' + d.regions + ' regions.';
+      tellPack('');
+    } else if (d.running) {
+      sum.textContent = 'Not installed yet.';
+      btn.hidden = false; btn.disabled = true;
+      log.hidden = false; log.textContent = tail;
+      tellPack('Downloading the pictures. You can leave this page.');
+    } else if (!feed) {
+      sum.textContent = 'Not installed.';
+      tellPack('The update feed names no pictures to fetch, or cannot be reached, '
+               + 'so there is nothing to install from here.', true);
+    } else {
+      sum.textContent = 'Not installed. One download of about ' + mb(feed.bytes || 0)
+        + ', shared by every course.';
+      btn.hidden = false; btn.disabled = false;
+      if (d.state === 'failed') {
+        log.hidden = false; log.textContent = tail;
+        tellPack('The last install did not finish: ' + (d.error || 'see its last lines above')
+                 + '. You can try again.', true);
+      } else {
+        tellPack('Nothing happens until you click.');
+      }
+    }
+    clearTimeout(timer);
+    if (d.running) { timer = setTimeout(load, 3000); }
+  }
+
+  function load() {
+    fetch('/api/packs', { headers: window.STUDYTOKEN.headers({}) })
+      .then(function (r) {
+        if (r.status === 401) { window.STUDYTOKEN.ask(load); return null; }
+        return r.json();
+      })
+      .then(function (d) { if (d) { draw(d); } })
+      .catch(function () { tellPack('Could not reach the server.', true); });
+  }
+
+  btn.addEventListener('click', function () {
+    btn.disabled = true;
+    tellPack('Starting the download\u2026');
+    fetch('/api/packs/install',
+          { method: 'POST', headers: window.STUDYTOKEN.headers({}) })
+      .then(function (r) {
+        if (r.status === 401) { window.STUDYTOKEN.ask(function () { btn.disabled = false; }); return null; }
+        return r.json();
+      })
+      .then(function (d) {
+        if (!d) { return; }
+        if (!d.ok) { tellPack(d.error || 'It would not start.', true); btn.disabled = false; return; }
+        tellPack('Downloading.');
+        load();
+      })
+      .catch(function () { tellPack('Could not reach the server.', true); btn.disabled = false; });
+  });
   load();
 }());
 
@@ -12276,10 +12419,15 @@ def update_status(cfg, fetch=None):
         # compares lexically; anything unparseable is treated as not newer,
         # because a broken feed must never nag.
         newer = bool(latest) and latest.split("+")[0] > ver.split("+")[0]
+        packs = remote.get("packs")
         answer = {"ok": True, "version": ver, "check": "on", "newer": newer,
                   "latest": latest,
                   "url": str(remote.get("url") or "")[:500],
-                  "note": str(remote.get("note") or "")[:300]}
+                  "note": str(remote.get("note") or "")[:300],
+                  # What the feed says can be fetched beside the kit (the
+                  # picture pack), passed through for the wizard's size label
+                  # and the Settings row; absent from an older feed, so {}.
+                  "packs": packs if isinstance(packs, dict) else {}}
     except (OSError, ValueError):
         answer = {"ok": True, "version": ver, "check": "unreachable"}
     _UPDATE_CACHE["at"] = now
@@ -12980,6 +13128,15 @@ class Handler(BaseHTTPRequestHandler):
                 answer = dict(update_status(self.base_cfg))
                 answer.update(restart_status())
                 return self._json(answer)
+            if path == "/api/packs":
+                # The picture pack: is it on this disk, is an install going, and
+                # what the feed offers. Reads and starts nothing. Course-
+                # independent: one pack serves every course.
+                answer = dict(regionpack.install_status())
+                answer["ok"] = True
+                answer["feed"] = (update_status(self.base_cfg).get("packs") or {}
+                                  ).get(regionpack.PACK_ID)
+                return self._json(answer)
             if path == "/api/captions":
                 # Asks and starts nothing, so the settings page may call it as
                 # often as it likes, including while a run is going.
@@ -13237,12 +13394,28 @@ class Handler(BaseHTTPRequestHandler):
             # The caption engine (torch and the forced aligner, a few hundred
             # MB) installed ONCE into ~/.kcl-study/captions-venv, in its own
             # process group exactly as a build is, and only on a person's
-            # click: this is the second of the two verbs that start work here,
-            # and there is no third. Course-independent, so no module.
+            # click: this is the second of the three verbs that start work
+            # here. Course-independent, so no module.
             self._drain_body()
             self._use_module(None)
             return self._json(caption_ask(self.base_cfg, ["--install-start"],
                                           CAPTION_START_TIMEOUT))
+
+        if path == "/api/packs/install":
+            # The third, added 2026-09-18: the picture pack (44 MB, once,
+            # shared by every course) fetched into the kit's own folder, in
+            # its own process group like the two above, and only on a click.
+            # The feed it fetches from is the config's update feed, so the
+            # verb and the reader's update notice can never disagree about
+            # where a release lives. Course-independent, so no module.
+            self._drain_body()
+            self._use_module(None)
+            url = str(self.base_cfg.get("update_url") or "").strip()
+            if not url:
+                return self._json({"ok": False, "error": "the update feed is off "
+                                   "in this config, so there is nowhere to fetch "
+                                   "the pictures from"})
+            return self._json(regionpack.start_install(url))
 
         try:
             payload = self._body()
@@ -14948,6 +15121,7 @@ class Handler(BaseHTTPRequestHandler):
             "readings_site": WIZ_READINGS_SITE % fill,
             "consol": WIZ_CONSOL % fill,
             "captions": WIZ_CAPTIONS % fill,
+            "pack": WIZ_PACK % fill,
         }
 
         page = WIZARD_PAGE % {
@@ -14963,6 +15137,9 @@ class Handler(BaseHTTPRequestHandler):
             "frags": json.dumps(frags),
             "status": json.dumps(status),
             "tokenbar": TOKEN_BAR,
+            # Shown only while the pack is absent: read from the disk on every
+            # render, so a wizard opened after an install does not offer it.
+            "pack_hidden": " hidden" if regionpack.install_status()["installed"] else "",
         }
         return self._text(page, 200, "text/html; charset=utf-8")
 
@@ -15240,6 +15417,22 @@ class Handler(BaseHTTPRequestHandler):
             '<pre class="caplog" id="caplog" hidden></pre>'
             '<p class="says" id="capsays" role="status"></p></section>'
             % "".join(cap_opts)) if cap_opts else ""
+        # One row for the picture pack: what is installed, or the one button
+        # that fetches it. The state is asked of /api/packs by the script, so
+        # the markup carries no claim the disk could contradict a minute later.
+        pack_section = (
+            '<section><h2>Brain-region pictures</h2>'
+            '<p class="hint">Labelled plates of the brain regions, with their '
+            'definitions, so a region named in a lesson opens on a picture chosen '
+            'for that purpose rather than whatever Wikipedia leads with. One '
+            'download shared by every course on this machine, kept across '
+            'upgrades. The plates have not had a formal review by a domain '
+            'expert: study from them, do not cite them.</p>'
+            '<div class="pathrow">'
+            '<button id="packinstall" hidden>Install the pictures</button></div>'
+            '<p class="capsum" id="packsum"></p>'
+            '<pre class="caplog" id="packlog" hidden></pre>'
+            '<p class="says" id="packsays" role="status"></p></section>')
 
         page = SETTINGS_PAGE % {
             "icons": HEAD_ICONS,
@@ -15269,6 +15462,7 @@ class Handler(BaseHTTPRequestHandler):
                                   for m in MODELS]),
             "courses": courses_section,
             "captions": captions_section,
+            "pack": pack_section,
             "tokenbar": TOKEN_BAR,
             "state": json.dumps({"level": cur.get("level"),
                                  "panelSize": cur.get("panelSize"),
